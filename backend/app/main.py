@@ -1,0 +1,26 @@
+"""
+FastAPI application entry point.
+
+Keep this file TINY. It wires together routers and middleware — nothing else.
+Business logic lives in services; HTTP handlers live in api/.
+"""
+from fastapi import FastAPI
+
+from app.api import health
+from app.core.config import settings
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="ShambaTrack API",
+        version="0.1.0",
+        description="Cooperative management platform for East African agriculture.",
+    )
+
+    # Register routers
+    app.include_router(health.router)
+
+    return app
+
+
+app = create_app()
