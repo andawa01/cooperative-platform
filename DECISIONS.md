@@ -170,3 +170,47 @@ TBD — record the first time this happens. It will.
 - Permission model design
 - Scope decisions
 - Anything we cannot defend live
+
+## D-006 — Farmer identity invariants
+
+**Date:** 2026-10-09
+**Status:** Accepted
+
+**Context:**
+The brief names "ghost farmers" — fake or duplicate records paid for produce
+never delivered — as a first-class problem. We need to decide which defenses
+live in the database and which in the application.
+
+**Decision:**
+Database-enforced (via CHECK/UNIQUE constraints):
+- Phone must be E.164 format
+- Phone must be unique
+- National ID must be unique *when present* (Postgres ignores NULLs in UNIQUE)
+- `merged_into_id` cannot point at self
+- `status = 'merged'` if and only if `merged_into_id IS NOT NULL`
+- `verified_at` and `verified_by_id` set together or not at all
+- `status` must be one of a closed set
+
+Application-enforced (business rules that cannot be expressed in DDL):
+- Merged farmers cannot receive new deliveries or payments
+- Merge chains (A→B→C) must be resolved to the terminal farmer when reading history
+- Users are soft-deleted (deactivated), never hard-deleted, because audit records reference them
+
+**Verification:**
+Direct SQL against the running DB proved all 5 DB-level invariants reject
+invalid rows, and that two farmers with NULL national_id are both accepted.
+
+**Consequences:**
+- A buggy or hostile application cannot insert corrupt farmer records
+- Any write path (API, seed script, raw SQL, migration) is bound by the same rules
+- The application still owns lifecycle semantics; the DB does not know what a
+  "delivery" is
+
+**Portability note:**
+The "multiple NULLs allowed in UNIQUE" behavior is Postgres/MySQL. SQL Server
+allows only one NULL by default. If we ever port, we'd need a partial unique
+index on `national_id WHERE national_id IS NOT NULL`.
+
+**Reversal triggers:**
+- If the business needs farmers without a phone number (e.g., walk-in
+  registration later digitised), we'd relax the uniqueness to a partial index.
