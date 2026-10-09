@@ -270,3 +270,159 @@ We initially wrote the constraint without realizing `btree_gist` was needed.
 The first `alembic upgrade head` failed with:
 `data type uuid has no default operator class for access method "gist"`.
 We diagnosed and fixed it ourselves, then documented why here.
+
+## D-008 — Delivery: the spine of the system
+
+**Date:** 2026-10-09
+**Status:** Accepted
+
+**Context:**
+Every hard problem in the brief flows through deliveries: ghost farmers,
+disputed records, farmer trust, produce-line reporting, clerk accountability,
+credit history. If `Delivery` is wrong, everything downstream is wrong.
+
+**Decision — the shape of a Delivery:**
+
+A Delivery is an immutable factual record that *"at time T, farmer F delivered
+quantity Q of produce line L, recorded by clerk C."*
+
+Two distinct timestamps:
+- `delivered_at` — when the physical delivery happened
+- `recorded_at` — when the clerk entered it in the system
+
+These can differ by days. The brief explicitly calls this out
+("recorded by field clerks, sometimes days later"). Storing only one
+timestamp collapses two facts into one and loses the discrepancy.
+
+**Decision — corrections are reversals, not edits:**
+
+Confirmed deliveries are never edited or deleted. A correction is a new
+delivery row with negative quantity that references the original via
+`reversal_of_id`. The original remains visible in history.
+
+Why not edit? Because the interview brief names "farmers don't trust the
+math" as a first-class problem. An editable record is untrustworthy by
+definition. A reversal is a *new* fact that references an *old* fact, and
+both remain visible.
+
+**Decision — reversals live in the same table:**
+
+We considered a separate `delivery_reversals` table. We rejected it because
+every "net quantity for farmer" query would require a LEFT JOIN, which is a
+foot-gun for developers and a performance tax. Same-table reversals turn
+"net quantity" into `SUM(quantity)`, which is elegant and cheap.
+
+Enforcement:
+- A reversal has `quantity < 0`.
+- A normal delivery has `quantity > 0`.
+- A reversal has `reversal_of_id` set; a normal delivery has it NULL.
+- A unique constraint on `reversal_of_id WHERE NOT NULL` prevents
+  double-reversal.
+- A CHECK prevents self-reversal (`reversal_of_id != id`).
+
+We do NOT support partial reversals. A reversal undoes the whole original
+delivery. Partial reversals are a different design that we would only build
+if a real cooperative asked for it. (Reversal trigger documented below.)
+
+**Decision — amount is computed, not stored:**
+
+`amount = quantity * rate_snapshot`, using Python `Decimal` with a defined
+rounding policy.
+
+We do NOT materialize `amount` in the MVP because:
+- It duplicates data that can be derived
+- Duplicated data can drift
+- At our scale, computation is free
+
+Reversal trigger: if a cooperative exceeds ~500k deliveries and dashboard
+aggregation becomes slow, we add a materialized column with a CHECK that
+enforces the invariant, or a generated column.
+
+**Decision — a delivery's valuation is separate from a farmer's payment:**
+
+A delivery creates a *liability* (money the cooperative owes the farmer).
+A payment is a *settlement* of one or more liabilities. These are different
+concepts and live in different models (`Payment`, `PaymentAllocation`).
+
+**Decision — valuation is derived, not stored:**
+
+We do not have a `valuation_status` column. A delivery is "pending valuation"
+if `rate_snapshot IS NULL` and "valued" otherwise. Deriving means the status
+can never drift from the underlying fact. If we later need a third state
+(e.g., "under admin review"), we add it then.
+
+**Decision — rate is snapshotted at record time:**
+
+`rate_snapshot` stores the exact rate that applied when the delivery was
+recorded. Future rate changes never affect historical deliveries. This is
+what makes the payment math trustworthy to farmers.
+
+**Decision — reversals inherit the original's date:**
+
+A reversal's `delivered_at` matches the original's. This keeps the reversal
+attached to the period it corrects, not to today's date. `recorded_at`
+tells us when the correction was entered.
+
+**Invariants (DB-enforced):**
+- `quantity > 0` for normal deliveries, `quantity < 0` for reversals
+- `rate_snapshot` is positive when present
+- `currency_snapshot` matches ISO 4217 format
+- `reversal_of_id != id` (no self-reversal)
+- `UNIQUE (reversal_of_id)` where non-null (no double-reversal)
+- `delivered_at <= recorded_at + interval '1 hour'` (allows clock skew)
+- FKs with ON DELETE RESTRICT for all references (no silent orphan deletion)
+
+**Invariants (application-enforced):**
+- A rate must exist on the `delivered_at` date, otherwise the delivery is
+  recorded with `rate_snapshot = NULL` and flagged for review. (See D-009.)
+- A merged, archived, or suspended farmer cannot receive new deliveries.
+- A deactivated produce line cannot be used in new deliveries.
+
+**Reversal triggers:**
+- If a cooperative needs partial reversals, we redesign.
+- If audit requirements demand a permanent, immutable record even of
+  reversals, we move to an append-only event log (event sourcing proper).
+- If dashboard performance degrades at scale, we materialize `amount`.
+
+## D-009 — Delivery invariant verification
+
+**Date:** 2026-10-09
+**Status:** Accepted
+
+**Context:**
+D-008 defined the shape of `Delivery` and asserted a set of invariants.
+This entry records that those invariants were verified against the running
+database with raw SQL, before any application code exists to enforce them.
+
+**Verification method:**
+Eight direct SQL tests against the live `deliveries` table.
+
+**Results:**
+
+| Test | Attempt | Expected | Actual |
+|---|---|---|---|
+| 1 | Valid delivery (positive, no reversal) | accept | ✅ accept |
+| 2a | Positive qty + reversal_of_id set | reject | ✅ reject (`ck_delivery_normal_or_reversal`) |
+| 2b | Negative qty + no reversal_of_id | reject | ✅ reject (`ck_delivery_normal_or_reversal`) |
+| 3 | Valid reversal (negative, links to original) | accept | ✅ accept |
+| 4 | Second reversal of the same original | reject | ✅ reject (`uq_delivery_reversal_of`) |
+| 5 | Reversal of self | reject | ✅ reject (`ck_delivery_no_self_reversal`) |
+| 6 | Future-dated delivery (+5 years) | reject | ✅ reject (`ck_delivery_delivered_at_not_future`) |
+| 7 | Backdated delivery (recorded 6 months later) | accept | ✅ accept |
+| 8 | Unvalued delivery (rate_snapshot NULL) | accept | ✅ accept |
+
+**Net quantity sanity check:**
+`SELECT SUM(quantity) FROM deliveries WHERE farmer_id = X`
+correctly returns `+100 +25 +30 -100 = 55` — the reversal is
+automatically incorporated. This is the payoff of same-table reversals
+(D-008): no joins, no forgotten subtractions, no drift.
+
+**Consequences for later work:**
+- The API service layer for deliveries must enforce *the strict version*
+  of these rules that the DB cannot: a reversal's quantity must be exactly
+  the negative of its original's, and its `delivered_at` must match the
+  original's `delivered_at`.
+- Rate lookup on delivery creation is a business rule (see D-010): the
+  service layer finds the applicable rate by `delivered_at`, snapshots it
+  into `rate_snapshot`, and allows `NULL` if no rate exists — producing a
+  "pending valuation" delivery rather than rejecting the record.
