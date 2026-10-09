@@ -214,3 +214,59 @@ index on `national_id WHERE national_id IS NOT NULL`.
 **Reversal triggers:**
 - If the business needs farmers without a phone number (e.g., walk-in
   registration later digitised), we'd relax the uniqueness to a partial index.
+
+## D-007 — Rates are effective-dated, append-only, and non-overlapping
+
+**Date:** 2026-10-09
+**Status:** Accepted
+
+**Context:**
+The price a cooperative pays per kg of coffee (or liter of milk, etc.) changes
+over time. Farmers deliver continuously. We must never let the "value" of a
+past delivery silently change when the current price changes, and we must
+never have two different prices applying to the same produce line on the same
+day.
+
+**Options considered:**
+1. Store the current rate on the produce line, and store a snapshot on each
+   delivery. Simple, but the price history is lost — "what did we pay last
+   season?" becomes unanswerable.
+2. Store rate history in an audit table only. Queryable for forensics, but not
+   the source of truth for new deliveries.
+3. Store rates as effective-dated rows, and snapshot the applicable rate onto
+   each delivery.
+
+**Decision:**
+Option 3. The `rates` table stores append-only, effective-dated rows.
+Each `Delivery` will snapshot the exact rate applied at the moment it was
+recorded (this will live in `delivery.rate_snapshot`).
+
+**Rules enforced:**
+- Rates are never edited or deleted. A price change closes the current rate
+  (`effective_to = <new_start_date>`) and inserts a new row.
+- Ranges are half-open `[from, to)`. This means each calendar day belongs to
+  exactly one rate. No gaps, no overlaps.
+- Overlap is prevented by a PostgreSQL EXCLUDE constraint using
+  `daterange(effective_from, effective_to, '[)') WITH &&`.
+- This requires the `btree_gist` extension (GiST doesn't index `uuid` natively).
+
+**Consequences:**
+- Historical rate queries are trivial: `WHERE effective_from <= D AND
+  (effective_to IS NULL OR effective_to > D)`
+- Current rate is: `WHERE effective_to IS NULL ORDER BY effective_from DESC LIMIT 1`
+- Rate changes are one INSERT + one UPDATE (close the old, add the new),
+  wrapped in a single transaction.
+- Migration `db2c3a3decf7` must `CREATE EXTENSION btree_gist` before creating
+  the `rates` table, or a fresh clone will fail on `alembic upgrade head`.
+
+**Reversal triggers:**
+- If rates need to vary by farmer segment (not just produce line), we'd add
+  a `segment` column to the exclusion constraint.
+- If we ever needed per-delivery negotiated prices, we'd allow rates to be
+  overridden at delivery time (snapshot, still append-only).
+
+**AI note:**
+We initially wrote the constraint without realizing `btree_gist` was needed.
+The first `alembic upgrade head` failed with:
+`data type uuid has no default operator class for access method "gist"`.
+We diagnosed and fixed it ourselves, then documented why here.
