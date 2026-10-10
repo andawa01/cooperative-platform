@@ -426,3 +426,193 @@ automatically incorporated. This is the payoff of same-table reversals
   service layer finds the applicable rate by `delivered_at`, snapshots it
   into `rate_snapshot`, and allows `NULL` if no rate exists — producing a
   "pending valuation" delivery rather than rejecting the record.
+
+## D-010 — The ledger model: deliveries as credits, payments as debits
+
+**Date:** 2026-10-10
+**Status:** Accepted
+
+**Context:**
+The brief requires money operations to be safe and farmer balances to be
+trustworthy. Every financial design choice flows from one core question:
+*where does the truth live?*
+
+**Decision — the ledger:**
+
+We model money as a two-sided ledger:
+
+- Every **delivery** is a **credit** to the farmer (we owe them more).
+- Every **payment** is a **debit** to the farmer (we owe them less).
+
+We do NOT store any farmer balance. Not on `Farmer`, not on any summary
+table. Balances are always derived from the underlying facts.
+
+**Why derived, not stored:**
+A stored balance is a duplicated fact. Every write that affects it (delivery,
+reversal, payment, correction) must update it consistently. Miss one path and
+the balance is wrong forever, and the farmer loses trust. A derived balance
+cannot drift — as long as the underlying facts are correct.
+
+**Reversal triggers:**
+If performance measurements show aggregation is the bottleneck (e.g., dashboards
+become slow at 500k+ deliveries), we introduce a materialized balance column
+maintained by triggers or a scheduled job, with an automated reconciliation
+check that compares it to the derived value. Until then, we accept slower reads
+in exchange for correctness.
+
+**Decision — payment allocation is a separate entity:**
+
+A payment is a *transfer of money to a farmer*. An allocation records *which
+deliveries that payment settles*. These are different concepts.
+
+Without `PaymentAllocation`, we cannot answer "which deliveries are still
+unpaid?" — a core management question.
+
+**Decision — partial payments are allowed:**
+
+A farmer may be paid partially now, and the remainder later. A payment
+allocates a specific amount against each delivery it covers.
+
+**Decision — payment reversal cascades to allocations (in one transaction):**
+
+When a payment is reversed, its allocations are reversed in the same
+transaction, under the same lock. This is a service-layer rule, not a DB
+constraint — because the DB doesn't know about the business intent.
+
+Failure mode if we didn't cascade: `SUM(payments)` would say "reversed"
+but `SUM(allocations)` would still show the deliveries as settled. The
+ledger would be internally inconsistent.
+
+**Decision — same-table reversals for payments AND allocations:**
+
+Both `Payment` and `PaymentAllocation` use the same reversal pattern as
+`Delivery`:
+- Normal row: positive amount, `reversal_of_id IS NULL`
+- Reversal row: negative amount, `reversal_of_id` points at the original
+- `UNIQUE (reversal_of_id) WHERE NOT NULL` prevents double-reversal
+- `reversal_of_id != id` prevents self-reversal
+
+Aggregation becomes `SUM(amount)` — sign encodes direction. No joins, no
+special-casing, no risk of forgetting to subtract reversals.
+
+**Decision — payments may exceed outstanding debt:**
+
+A cooperative may advance money against future deliveries (common in
+agriculture). We allow overpayment, and distinguish two positions:
+
+- **Outstanding debt** — unpaid value of deliveries
+- **Unallocated credit** — confirmed money received, not yet assigned to
+  deliveries
+
+We do NOT represent overpayment as a negative balance. They are different
+financial positions and collapsing them into one signed number loses
+information.
+
+Application of credit to future deliveries is an explicit, auditable
+transaction. We never silently rewrite the original payment.
+
+**Decision — concurrency protocol (the financial write path):**
+
+Every operation that changes a farmer's outstanding balance must follow the
+same locking protocol:
+
+1. Begin transaction
+2. Lock all involved farmers in ascending UUID order:
+   `SELECT id FROM farmers WHERE id IN (...) ORDER BY id FOR UPDATE`
+3. Read authoritative state (deliveries, allocations, payments) under lock
+4. Validate business rules
+5. Write
+6. Commit
+
+Operations bound by this protocol:
+- Creating a payment
+- Creating payment allocations
+- Reversing a payment (and its cascade)
+- Reversing a delivery
+- Applying credit to a delivery
+
+**Why the farmer row is the lock:**
+- One lock per farmer — no multi-lock ordering pitfalls in the common case
+- Different farmers can be paid concurrently
+- The invariant we protect ("a farmer cannot be over-paid") is farmer-scoped
+
+**Why ascending UUID ordering:**
+When a transaction must lock multiple farmers, a consistent order eliminates
+deadlock cycles. Documented as a hard rule.
+
+**Caveat — writers must go through the service:**
+The lock only works if all writers obey it. Direct SQL writes bypass it.
+For MVP we restrict DB write access to the application role. Adding a
+materialized `unallocated_amount` column with CHECK `>= 0` on `delivery`
+would provide DB-level enforcement even against rogue writers, but we
+deliberately reject it for now — one materialized value, one source of
+truth drift we can't afford (see "Why derived, not stored").
+
+**The four tests that matter most:**
+
+These map directly to the brief's "money operations are safe" requirement:
+
+1. Two concurrent payments cannot allocate more than a delivery's
+   outstanding value.
+2. Retrying the same payment with the same idempotency key cannot create
+   a duplicate payment.
+3. Reversing a payment restores both the delivery's outstanding amount
+   and the farmer's available credit correctly.
+4. Concurrent delivery reversal and payment creation for the same farmer
+   serialize correctly (no lost update, no double-spend against credit).
+
+If any of these fails, the money model is broken and we stop everything
+else until it's fixed.
+
+## D-011 — Money model verified against the live database
+
+**Date:** 2026-10-10
+**Status:** Accepted
+
+**Context:**
+D-010 defined the money model. This entry records verification of the
+constraints that protect it, performed with raw SQL against the running DB
+before any application code exists.
+
+**Eight tests, all constraints fired as designed:**
+
+| # | Attempt | Result |
+|---|---|---|
+| 1 | Valid payment | accepted |
+| 2 | Valid allocation | accepted |
+| 3 | Reuse an idempotency key | rejected — `uq_payment_idempotency_key` |
+| 4 | Same payment+delivery allocation again | rejected — `uq_allocation_payment_delivery_normal` |
+| 5 | Reverse the payment | accepted |
+| 6 | Reverse the same payment twice | rejected — `uq_payment_reversal_of` |
+| 7 | Reverse the allocation | accepted |
+| 8 | Reverse the same allocation twice | rejected — `uq_allocation_reversal_of` |
+
+**Ledger symmetry proof:**
+
+After one payment + one reversal, and one allocation + one reversal:
+- `SUM(payments.amount) = 0.0000` for that farmer
+- `SUM(payment_allocations.amount) = 0.0000` for that delivery
+
+Sign-encoded amounts mean aggregation never needs a WHERE clause to
+subtract reversals. This is the payoff of same-table reversals (D-010).
+
+**Notable behaviors observed:**
+
+- **Partial unique index works.** Test 7 (allocation reversal, same
+  `(payment_id, delivery_id)` as its original) was accepted because the
+  index is `WHERE reversal_of_id IS NULL`. Test 4 (a second normal
+  allocation for the same pair) was correctly rejected.
+- **The idempotency key is scoped globally.** Test 3 confirmed that a
+  reused key is rejected regardless of farmer context.
+- **Reversals of payments and allocations are independent.**
+  A reversed payment and its reversal (positive + negative) net to zero,
+  but the underlying allocations still exist as separate facts.
+
+**Consequences:**
+
+- The next slice (API + service layer) can assume these invariants hold
+  and focus on the business rules the DB cannot enforce: allocating
+  according to outstanding balance under the farmer row lock (D-010).
+- The four tests listed in D-010 remain the "must pass" set. Tests 1–8
+  here cover the DB-level subset; the concurrency tests still must be
+  performed against the service layer.
