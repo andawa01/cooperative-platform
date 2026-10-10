@@ -616,3 +616,108 @@ subtract reversals. This is the payoff of same-table reversals (D-010).
 - The four tests listed in D-010 remain the "must pass" set. Tests 1–8
   here cover the DB-level subset; the concurrency tests still must be
   performed against the service layer.
+
+## D-012 — Authentication primitives
+
+**Date:** 2026-10-10
+**Status:** Accepted
+
+**Context:**
+Authentication and authorization must exist and be enforced server-side
+(brief, hard requirement 2). This entry records the primitives; the auth
+*flow* (registration, login) is a later slice.
+
+**Decision — password hashing: Argon2id via passlib.**
+
+Options considered:
+- Argon2id (chosen) — memory-hard, OWASP-recommended, defeats GPU attacks
+- bcrypt — acceptable, but has a 72-byte input limit and is less memory-hard
+- scrypt — also fine, less library support in Python
+- SHA-256 — **never**; fast hashes are trivially brute-forced
+- Plaintext — obviously not
+
+**Decision — JWT: HS256, 12-hour lifetime.**
+
+Options considered:
+- HS256 (chosen) — symmetric, one backend, simple, fast
+- RS256 — asymmetric, needed only for multi-service verification; overkill now
+- Session cookies — viable, but complicates mobile clients
+- Refresh tokens — out of scope for MVP; the frontend re-logs in after expiry
+
+**Why 12 hours:**
+- Long enough for a full field shift without re-login
+- Short enough to halve the exposure window vs a 24-hour token
+- Configurable via settings.access_token_expire_minutes for other environments
+
+**Decision — the token asserts identity, not permission.**
+
+The JWT includes `role` in its payload for the frontend's convenience, but
+the backend NEVER trusts it for authorization. Every protected request
+re-loads the user from the database and checks role + is_active at that
+moment. This means a user who is downgraded from admin to clerk loses admin
+privileges immediately, not after their token expires.
+
+**Decision — two roles only: admin and clerk.**
+
+- admin: manage rates, verify farmers, reverse payments
+- clerk: register farmers, record deliveries, record payments
+- (auditor would be added if we ever have a real read-only review workflow)
+
+The `users.role` column is a VARCHAR with a CHECK constraint (mirrored from
+a Python enum UserRole). Not a Postgres ENUM type — same reasoning as D-005:
+cheap to extend, DB-enforced.
+
+**Consequences:**
+- `security.py` has no imports from models or services — pure utility
+- Auth service and dependency layer (B.2, B.3) will build on these primitives
+- Token rotation is possible in the future by rotating `JWT_SECRET_KEY` —
+  no user data is lost, just all tokens become invalid (users re-login)
+- `SECRET_KEY` and `JWT_SECRET_KEY` are separate so rotating one does not
+  affect the other
+
+## D-013 — Alembic autogenerate: known failure modes we've hit
+
+**Date:** 2026-10-10
+**Status:** Accepted
+
+**Context:**
+Alembic autogenerate is our migration authoring tool, but it is not
+omniscient. Over the course of building the schema we have hit three
+distinct failure modes. Recording them here so we always review generated
+migrations rather than applying them blindly.
+
+**Failure mode 1 — Missing model registration.**
+If a model file exists but isn't imported into `app/models/__init__.py`,
+Alembic sees an empty `Base.metadata` for it and generates an empty
+migration (or worse, proposes to DROP the table). We hit this on the
+Farmers table.
+Mitigation: every new model gets an import line in `__init__.py` in the
+same commit as the model file.
+
+**Failure mode 2 — Constraint prerequisites.**
+We defined an `EXCLUDE USING gist (...)` constraint on `rates`. PostgreSQL
+needed the `btree_gist` extension installed first (GiST does not index
+`uuid` by default). Alembic rendered the constraint correctly but did not
+know to install the extension, and the first `alembic upgrade head` failed
+with `data type uuid has no default operator class for access method "gist"`.
+Mitigation: when a migration introduces a Postgres extension dependency,
+add `op.execute("CREATE EXTENSION IF NOT EXISTS ...")` at the top of
+`upgrade()`.
+
+**Failure mode 3 — Missing CHECK constraints on existing tables.**
+When we added `ck_user_role_valid` to the `users` table, autogenerate
+detected the accompanying VARCHAR length change but missed the new CHECK
+constraint entirely. We patched the migration by hand.
+Mitigation: after any schema change that adds a constraint to an existing
+table, query `pg_constraint` for that table and verify the constraint
+landed.
+
+**General rule:**
+Read every generated migration line by line before applying. Autogenerate
+is a starting point, not a finished artifact. Hand-edits are legitimate;
+they should carry a comment explaining why.
+
+**Consequences:**
+Every migration in this project carries an implicit claim: "we read this
+and confirmed it does exactly what we intended." Any migration that
+doesn't meet that bar should be treated as a bug.
