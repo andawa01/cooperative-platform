@@ -721,3 +721,88 @@ they should carry a comment explaining why.
 Every migration in this project carries an implicit claim: "we read this
 and confirmed it does exactly what we intended." Any migration that
 doesn't meet that bar should be treated as a bug.
+
+## D-014 — Auth flow: bootstrap, timing, and response hygiene
+
+**Date:** 2026-10-12
+**Status:** Accepted
+
+**Context:**
+D-012 defined the primitives (hashing, JWTs, roles). This entry records the
+auth *flow* decisions: how the first admin is created, how login is made
+safe against enumeration, and how the API response is shaped to prevent
+accidental data leaks.
+
+**Decision — first-user-bootstraps-admin, then admin-only.**
+
+Rules:
+- If `users` is empty, the first registration always creates an `admin`,
+  regardless of the requested role. There is no one else to approve them.
+- Subsequent registrations default to `clerk` and may request `admin` — but
+  in slice B.3 the endpoint will require an authenticated admin to create
+  users (open signup is disabled).
+
+**Bootstrap race safety:**
+We use a Postgres transaction-scoped advisory lock
+(`pg_advisory_xact_lock(_BOOTSTRAP_LOCK_KEY)`) around the check-then-insert.
+Two concurrent first-user requests serialize: one creates the admin, the
+other sees a non-empty table and falls through to the normal path. Without
+the lock, both could observe "table empty" and both become admins.
+
+**Why an advisory lock over alternatives:**
+- SERIALIZABLE isolation would work but is heavier and affects the entire
+  transaction, not just the bootstrap check.
+- Application-level threading locks don't survive multiple Uvicorn workers.
+- `INSERT ... WHERE NOT EXISTS` is readable only in theory — in practice it
+  fights SQLAlchemy's ORM and mis-formats timestamps and UUIDs. We chose
+  clarity.
+
+**Decision — constant-time login response.**
+
+Login always runs an Argon2 verification:
+- If the email exists and password is correct → success
+- If the email exists and password is wrong → verify, fail
+- If the email does NOT exist → verify against a hardcoded dummy hash, fail
+
+All three paths take roughly the same time (~50 ms with our Argon2
+parameters). Without this, an attacker could time the endpoint to learn
+which emails are registered — a real information leak, not a theoretical
+one.
+
+We also return the *same* error message (`"Invalid credentials"`) for
+"unknown email" and "wrong password". Message uniformity and timing
+uniformity together are what actually prevent enumeration.
+
+**Decision — `UserResponse` is an allowlist, not a blacklist.**
+
+The response schema lists exactly the fields clients should see
+(`id`, `email`, `full_name`, `role`, `is_active`). It does NOT include
+`hashed_password`, and it never will. This is stronger than trying to
+exclude sensitive fields from a generic serializer — if a new sensitive
+field is added to the User model later, it will not appear in the API
+response unless someone adds it to `UserResponse` on purpose.
+
+**Decision — email validation is strict.**
+
+`EmailStr` uses the `email-validator` library, which rejects reserved
+TLDs (`.local`, `.test`, `.example`) by default. Test fixtures and seed
+data must use realistic-looking domains (we use `@shambatrack.io`).
+If we ever need to accept reserved domains in development, we'd add a
+`LooseEmailStr` type that calls
+`validate_email(..., check_deliverability=False)`. We deliberately did
+NOT relax the validator for the API itself — production emails should
+be checked strictly.
+
+**Consequences:**
+- Auth endpoints behave identically for anonymous and authenticated
+  actors up to the point of token issuance.
+- The bootstrap path is race-safe under concurrent first requests.
+- Any accidental addition of `hashed_password` to a response would fail
+  code review, not slip through because someone forgot to add
+  `exclude=True`.
+
+**Reversal triggers:**
+- If we later add multi-tenant admin bootstrapping (one admin per
+  cooperative), the advisory lock key becomes per-cooperative.
+- If we add rate limiting to login, the constant-time defense stays
+  but is augmented by throttling.
