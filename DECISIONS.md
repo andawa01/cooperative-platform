@@ -806,3 +806,88 @@ be checked strictly.
   cooperative), the advisory lock key becomes per-cooperative.
 - If we add rate limiting to login, the constant-time defense stays
   but is augmented by throttling.
+
+## D-015 — Authorization: dependency-based, DB-authoritative
+
+**Date:** 2026-10-12
+**Status:** Accepted
+
+**Context:**
+D-012 defined authentication (who you are) and D-014 defined the auth flow
+(register, login, constant-time, bootstrap). This entry records how
+*authorization* (what you may do) is enforced on every protected endpoint.
+
+**Decision — dependencies, not middleware.**
+
+Authorization is expressed as FastAPI dependencies in `app/api/deps.py`:
+- `get_current_user` — resolves the caller from the bearer token
+- `require_role(*roles)` — factory that returns a role-checking dependency
+
+Endpoints declare what they need:
+
+    @router.post(
+        "/rates",
+        dependencies=[Depends(require_role(UserRole.ADMIN))],
+    )
+    def create_rate(...): ...
+
+We chose dependencies over custom middleware because:
+- Middleware doesn't see the route; it can only allow/deny by path pattern,
+  which is fragile.
+- Dependencies compose: an endpoint can require a role AND inject the user
+  object for use in the handler.
+- The permission is stated at the endpoint — visible where the decision
+  matters, not hidden in a config table.
+
+**Decision — the DB is authoritative on every request.**
+
+`get_current_user` re-loads the user from the database, using only the
+`sub` claim from the token. It does NOT trust the token's `role` claim.
+
+Consequences:
+- A user whose role changed takes effect on the *next request*, not after
+  token expiry.
+- A user deactivated mid-session is blocked immediately.
+- We pay one DB lookup per authenticated request. For MVP this is fine. If
+  it becomes a bottleneck we may cache briefly, but only after measurement.
+
+**Decision — 401 vs 403 are used precisely.**
+
+- 401 Unauthorized — no token, bad token, expired token, user not found,
+  user is inactive. These all mean: "we don't know who you are (or you
+  have no standing)."
+- 403 Forbidden — token valid, user active, but the role doesn't permit
+  the operation. This means: "we know who you are; you may not do this."
+
+FastAPI's default `HTTPBearer` returns 403 for a missing header, which is
+wrong per RFC 7235. We set `auto_error=False` and raise 401 ourselves with
+the standard `WWW-Authenticate: Bearer` header.
+
+**Decision — 401 responses don't leak which check failed.**
+
+All 401 paths except "Token expired" return the same generic message
+("Invalid token"). Distinguishing "bad signature" from "malformed" from
+"unknown user" would give an attacker a free oracle. The single exception
+is "Token expired", which the frontend legitimately needs to distinguish
+(it should prompt re-login, not show "your account is invalid").
+
+**Decision — inactive account = 401, not 403.**
+
+A deactivated account is treated as having no standing, not as
+"authenticated but forbidden". This keeps the mental model simple: 401
+means "you cannot proceed", 403 means "you are known but not permitted".
+
+**Consequences:**
+- Every protected endpoint declares its requirement declaratively.
+- Tests for permission boundaries are trivial: call the endpoint with a
+  clerk token where an admin is required, expect 403.
+- The full permission model is visible by grepping for `require_role` in
+  the codebase.
+
+**Reversal triggers:**
+- If we add a third role or complex permission logic ("a clerk may approve
+  deliveries under X units"), we move from role-checks to a policy
+  function that takes the user + resource and returns allow/deny.
+- If role changes become very frequent and DB-per-request becomes a
+  measured bottleneck, we add a short-lived role cache with explicit
+  invalidation on role change.

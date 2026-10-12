@@ -3,6 +3,8 @@ Auth endpoints: register, login, me.
 
 Keep this file thin. All decisions live in the service.
 """
+from app.api.deps import get_current_user
+from app.models.user import User
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -57,11 +59,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserResponse)
-def me():
+def me(current_user: User = Depends(get_current_user)):
     """
-    Placeholder. Real implementation lands with the auth dependency in B.3.
+    Return the currently authenticated user.
+
+    Any client with a valid, unexpired token for an active user reaches
+    this endpoint. The response never contains hashed_password.
     """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Implemented in slice B.3",
-    )
+    return current_user
