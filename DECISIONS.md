@@ -891,3 +891,116 @@ means "you cannot proceed", 403 means "you are known but not permitted".
 - If role changes become very frequent and DB-per-request becomes a
   measured bottleneck, we add a short-lived role cache with explicit
   invalidation on role change.
+
+## D-016 — Phone normalization policy
+
+**Date:** 2026-10-13
+**Status:** Accepted
+
+**Context:**
+Farmers' phone numbers are the SMS destination (expansion area 4) and the
+primary anti-duplicate key (D-006). The same human can be entered as
+`0712345678`, `+254712345678`, or `+254 712 345 678`. If those become
+three different rows, we have a ghost-farmer problem *before* we even get
+to payments.
+
+We must decide: what is the canonical phone format, and where does
+normalization happen?
+
+**Decision — canonical form is E.164.**
+
+Examples: `+254712345678`, `+256700000001`, `+255712345678`.
+
+The database enforces this with a CHECK (`ck_farmer_phone_e164`), so even
+a buggy service cannot insert a malformed phone. The API presents the same
+format — every `FarmerResponse.phone` is E.164.
+
+**Decision — normalization happens in the service, not the schema.**
+
+An initial design had the schema validate strictly against the E.164 regex
+and reject anything else. We reversed this when we realized the service's
+local-format normalizer was unreachable: any input that needed normalizing
+was already rejected by Pydantic before the service ran.
+
+We now:
+- Keep the schema as a **loose shape check only** (7–20 chars).
+- Let the **service** strip whitespace, accept already-E.164 values, match
+  a per-country table of known local formats (`07...` / `01...` for KE),
+  and either return the canonical E.164 form or raise `InvalidPhoneFormat`.
+
+**Rationale:**
+Phone format depends on country and cooperative context. A schema-level
+regex would have to be updated every time we onboard a cooperative in a
+new country. That's a business rule, not a shape rule — so it belongs in
+the service.
+
+The cost is that Pydantic no longer produces structured errors for phone
+format problems; the service produces a plain 422 with a readable message
+("phone '1234567' is not E.164 and does not match a known local format").
+We judged this to be *better* UX for a field clerk than Pydantic's
+"String should match pattern '^\\+[1-9][0-9]{6,14}$'".
+
+**Consequences:**
+- Adding Uganda or Tanzania means adding one entry to `_LOCAL_PREFIXES`
+  in the service. No schema change. No migration.
+- The frontend can pre-normalize for UX, but is not required to.
+- The DB CHECK remains as defense in depth.
+
+**Reversal triggers:**
+- If we ever accept phone numbers that are *not* associated with a known
+  country (e.g., a diaspora delivery), the service's per-country lookup
+  becomes a problem. We would then require E.164 from the client and
+  reject in the schema instead.
+
+---
+
+## D-017 — Service / router / schema layering
+
+**Date:** 2026-10-13
+**Status:** Accepted
+
+**Context:**
+`Farmers` was the first full CRUD resource. Its shape will be repeated for
+produce lines, rates, deliveries, and payments. It's worth recording the
+conventions explicitly so the rest of the project is consistent.
+
+**Layers:**
+
+- **`app/schemas/<resource>.py`** — Pydantic models. Request/response
+  contracts. Validation of *shape* (types, lengths, ranges). No business
+  rules. Response schemas are **allowlists**: if a field isn't here, it
+  doesn't leave the server.
+- **`app/services/<resource>.py`** — Business logic. Owns transactions.
+  Owns invariants that aren't (or can't be) enforced by the DB. Raises
+  *domain exceptions*, not HTTPException — the service doesn't know about
+  HTTP.
+- **`app/api/<resource>.py`** — HTTP handlers. Parse request, call
+  service, translate domain exceptions to HTTP responses, return schema.
+  Routers are thin; they should contain almost no branching beyond error
+  translation.
+
+**Rules that follow from this:**
+
+1. **Services never import FastAPI.** This makes them testable directly
+   and reusable from background jobs (SMS dispatch, credit scoring).
+2. **Routers never touch the Session directly.** All DB access goes
+   through the service.
+3. **Schemas never import services.** They only know their own shape and,
+   occasionally, model enums (e.g. `FarmerStatus`).
+4. **The exception translation is centralized per router.** A single
+   `_translate(exc)` helper maps domain exceptions to HTTP status codes
+   with consistent messages.
+
+**Consequences:**
+- Business rules are unit-testable without spinning up a server.
+- The HTTP layer is replaceable (e.g. if we later add a GraphQL or CLI
+  interface) without rewriting the logic.
+- Adding a new resource is mechanical: copy the `farmers` files as a
+  template, adapt.
+
+**Reversal triggers:**
+- If an endpoint needs logic that is genuinely HTTP-specific (e.g.
+  content negotiation, streaming), a small exception to the layering
+  is acceptable — but we would note it at the endpoint.
+- If we move to event-sourcing or CQRS, the service layer would split
+  into commands and queries. Not planned for MVP.

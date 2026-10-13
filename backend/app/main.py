@@ -6,7 +6,7 @@ Business logic lives in services; HTTP handlers live in api/.
 """
 from fastapi import FastAPI
 
-from app.api import auth, health
+from app.api import auth, farmers, health
 from app.core.config import settings
 
 
@@ -20,7 +20,8 @@ def create_app() -> FastAPI:
     # Register routers
     app.include_router(health.router)
     app.include_router(auth.router)
-
+    app.include_router(farmers.router)
+    
     return app
 
 
