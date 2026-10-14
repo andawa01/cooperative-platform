@@ -25,6 +25,8 @@ Definitions (see DECISIONS.md D-019):
   because they have no value yet.
 """
 import uuid
+from datetime import datetime
+from app.models.payment import Payment
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -123,4 +125,45 @@ def compute_balance(db: Session, farmer_id: uuid.UUID) -> FarmerBalance:
         allocated_to_deliveries=total_allocated,
         available_credit=available_credit,
         pending_valuation_deliveries=pending,
+    )
+
+def compute_balance_at(
+    db: Session,
+    farmer_id: uuid.UUID,
+    as_of: datetime,
+    inclusive: bool = True,
+) -> FarmerBalance:
+    """Time-bounded variant of compute_balance. Used by the statement service."""
+    if inclusive:
+        d_cond = Delivery.delivered_at <= as_of
+        p_cond = Payment.paid_at <= as_of
+    else:
+        d_cond = Delivery.delivered_at < as_of
+        p_cond = Payment.paid_at < as_of
+
+    delivery_value = db.scalar(
+        select(func.coalesce(func.sum(Delivery.quantity * Delivery.rate_snapshot), ZERO))
+        .where(Delivery.farmer_id == farmer_id)
+        .where(Delivery.rate_snapshot.is_not(None))
+        .where(d_cond)
+    ) or ZERO
+
+    allocations = db.scalar(
+        select(func.coalesce(func.sum(PaymentAllocation.amount), ZERO))
+        .join(Payment, Payment.id == PaymentAllocation.payment_id)
+        .where(Payment.farmer_id == farmer_id)
+        .where(p_cond)
+    ) or ZERO
+
+    payments = db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), ZERO))
+        .where(Payment.farmer_id == farmer_id)
+        .where(p_cond)
+    ) or ZERO
+
+    return FarmerBalance(
+        outstanding_debt=delivery_value - allocations,
+        allocated_to_deliveries=allocations,
+        available_credit=payments - allocations,
+        pending_valuation_deliveries=0,
     )

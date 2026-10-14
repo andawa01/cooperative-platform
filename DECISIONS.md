@@ -1325,3 +1325,75 @@ drift from the underlying facts.
 - If we integrate a real gateway and payments can fail, `REVERSED` (and
   likely `PENDING` and `FAILED`) become live statuses, and the flip-status
   decision above is revisited.
+
+## D-021 — Farmer statement: chronological view with running pair
+
+**Date:** 2026-10-14
+**Status:** Accepted
+
+**Context:**
+Balance (D-019) answers "where does this farmer stand right now?" The
+statement answers "how did they get there?" — a chronological narrative
+that a farmer, a clerk, or a lender can read line by line.
+
+**Decision — the statement shows a running PAIR, not a single number.**
+
+Each entry includes `debt_after` and `credit_after`. We deliberately do
+not compute a single "balance" figure, because debt and credit are
+different positions (see D-019) and collapsing them loses information.
+
+**Decision — one entry per top-level event.**
+
+The statement emits one row for each delivery, delivery reversal, payment,
+and payment reversal — never one row per internal ledger record (e.g. per
+allocation). Allocations are folded into the payment entry they belong to,
+keeping the narrative readable.
+
+**Decision — entry dates come from the business event, not the record.**
+
+- Deliveries use `delivered_at`
+- Payments use `paid_at`
+- Reversals inherit the original's date (D-019, D-020)
+
+`recorded_at` is not used for ordering. This keeps the story told in the
+farmer's time, not the clerk's.
+
+**Decision — the closing pair MUST equal /balance.**
+
+For a statement whose `end` covers the current moment, its `closing` is
+the same as what `GET /farmers/{id}/balance` returns. The statement
+service uses the ledger helpers (`compute_balance_at`) and applies signed
+deltas in order — it does not re-implement the math. A pytest in B.10
+asserts this invariant. If it ever fails, one of the two code paths is
+buggy, and the test tells us which.
+
+**Decision — statement range is bounded.**
+
+- Default range: last 365 days
+- Maximum range: 730 days (2 years)
+- `start <= end` enforced with 422 on violation
+
+The bound protects the database from accidentally enormous queries and
+matches what a real co-op would ever need to display.
+
+**Decision — description strings are backend-generated.**
+
+Each entry carries a human-readable `description` built by the service
+(e.g. `"Coffee 100 kg @ 50 KES"` or `"Payment reversal: bank reversed the
+transfer"`). For MVP this is the single source of truth. If we localize
+later, we introduce an i18n layer at the service boundary.
+
+**Consequences:**
+- Clients can render a statement directly without joining additional data.
+- The response shape stays stable even if internal ledger structure
+  changes (e.g. if we later move allocations to an event store).
+- A lender can consume a statement as evidence of production history
+  (foundation for the credit-readiness expansion later).
+
+**Reversal triggers:**
+- If statements become large (thousands of entries), we move the
+  computation into a window-function SQL query. The response shape stays
+  identical.
+- If we need multi-currency statements, `currency` moves from a single
+  top-level field to per-entry, and the running pair either takes a
+  conversion rate or splits into per-currency pairs.
