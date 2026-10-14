@@ -81,6 +81,12 @@ class Payment(BaseModel):
     # twice because the network dropped" double-payment.
     idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
 
+    # SHA-256 hex of the canonical request body. Used together with
+    # idempotency_key to distinguish:
+    #   (same key, same fingerprint) → replay, return existing payment
+    #   (same key, different fingerprint) → 409, client reused the key
+    idempotency_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+
     # --- Status and reversal --------------------------------------------
     status: Mapped[str] = mapped_column(
         String(20),

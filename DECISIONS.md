@@ -1208,3 +1208,120 @@ makes the three-way distinction visible so clients cannot confuse them.
   with `GET /deliveries?unvalued_only=true`.
 - Reversing a delivery produces visible, auditable side effects on
   allocations — nothing is silently deleted.
+
+## D-020 — Payment service: idempotency, allocation, cascade
+
+**Date:** 2026-10-14
+**Status:** Accepted
+
+**Context:**
+D-010 defined the payment ledger model. This entry records the service-layer
+rules: idempotency handling, FIFO vs manual allocation, reversal cascade,
+and the status model.
+
+**Decision — idempotency: return replay, reject payload drift.**
+
+Client sends `idempotency_key` (a UUID). The service stores a SHA-256
+fingerprint of the request's semantically meaningful fields (farmer_id,
+amount, currency, method, reference, paid_at, allocations) alongside the
+key.
+
+On a repeat request with the same key:
+
+- **Same fingerprint** → return the existing payment with header
+  `Idempotency-Replayed: true`. The client's retry is invisible to them.
+- **Different fingerprint** → 409 Conflict. The client reused a key for a
+  different intent, which is a bug they need to see.
+
+**Why fingerprint and not just "trust the key":**
+A key alone cannot tell us whether a request is a legitimate retry or a
+mistaken reuse. The fingerprint is what makes the distinction possible.
+This matches Stripe's behavior.
+
+**Race safety:**
+We check idempotency twice: once before the transaction (fast path) and
+once after acquiring the farmer lock (race-safe path). Two concurrent
+requests with the same key serialise on the lock; the second sees the
+first's payment row and replays.
+
+**Decision — allocation: FIFO by default, manual on request.**
+
+Request payload may include `allocations: [{delivery_id, amount}, ...]`.
+
+- **Manual mode** (allocations provided): the service validates each
+  allocation:
+  - Delivery belongs to the farmer
+  - Delivery is not a reversal
+  - Delivery is valued (has `rate_snapshot`)
+  - Amount does not exceed the delivery's remaining unpaid value
+  - No duplicate `delivery_id` within the request
+  - Sum of allocations ≤ payment amount
+
+  Any violation → 422, entire transaction rolls back.
+
+- **FIFO mode** (allocations omitted): the service allocates greedily
+  against the farmer's oldest outstanding valued deliveries
+  (`delivered_at ASC, id ASC`), stopping when the payment is exhausted.
+  Any leftover becomes unallocated credit on account.
+
+**Why FIFO as default:**
+A clerk recording a payment almost always wants "pay what we owe, oldest
+first." Making that the default (with no request body complexity) matches
+real workflow. Manual mode is for exceptional cases (a lender advances
+against a specific delivery, or a correction targets a specific line).
+
+**Decision — reversal cascades to allocations, same transaction.**
+
+`POST /payments/{id}/reverse`:
+1. Locks the payment row and farmer row.
+2. Inserts a compensating negative payment row (`reversal_of_id` = original).
+3. Reverses every non-reversed allocation of the original payment.
+4. Commits atomically.
+
+Same shape as delivery reversal (D-019). After the cascade, the ledger
+nets correctly: the reversed payment no longer counts, and the deliveries
+it settled are once again unpaid (their remaining value increases).
+
+**Decision — original payment status stays `confirmed` after reversal.**
+
+We do **not** flip the original payment's status to `reversed`. Reasons:
+
+1. The original payment is a fact. It happened. It remains in the ledger
+   as such. Flipping its status would imply it never happened.
+2. The reversal is also a fact, in its own row. Both are visible.
+3. `SUM(payments.amount)` sign-encodes the net effect naturally — no
+   filter on status needed to compute balances.
+4. A client that sees `status='reversed'` on the original might think
+   "this payment doesn't exist", which is wrong. It exists and was
+   reversed. Those are different things.
+
+**The `PaymentStatus.REVERSED` enum value is retained but unused in MVP.**
+It is reserved for a future case (integration with a real payment
+gateway, where a payment can be *attempted* and then confirmed or failed).
+Currently every payment — including reversals — has status `confirmed`.
+
+**Decision — unallocated amount is derived, not stored.**
+
+`unallocated_amount` on the response is computed:
+
+    payment.amount - SUM(net allocations on this payment)
+
+Never stored. Consistent with the ledger design (D-010): derivation cannot
+drift from the underlying facts.
+
+**Consequences:**
+- A payment is idempotent and safe to retry.
+- A payment can be partial, full, or an advance.
+- Reversing a payment cleanly restores the state of the deliveries it
+  settled, without any manual repair.
+- The `payment_allocations` table remains the single source of truth for
+  "what did this payment settle?".
+- Both FIFO and manual modes share the same allocation-validation
+  machinery, so the rules cannot diverge.
+
+**Reversal triggers:**
+- If we ever need partial reversals of a payment (reverse only part of
+  what was paid), we redesign — current model reverses the whole payment.
+- If we integrate a real gateway and payments can fail, `REVERSED` (and
+  likely `PENDING` and `FAILED`) become live statuses, and the flip-status
+  decision above is revisited.
