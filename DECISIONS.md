@@ -1004,3 +1004,105 @@ conventions explicitly so the rest of the project is consistent.
   is acceptable — but we would note it at the endpoint.
 - If we move to event-sourcing or CQRS, the service layer would split
   into commands and queries. Not planned for MVP.
+
+## D-018 — Rate change protocol: lock, close, insert
+
+**Date:** 2026-10-14
+**Status:** Accepted
+
+**Context:**
+Rates are effective-dated and non-overlapping (D-007), enforced by an
+`EXCLUDE USING gist` constraint on `rates`. Setting a new rate therefore
+cannot simply INSERT — the new range would overlap the current open-ended
+one, and the constraint would reject it. We need a defined protocol for
+changing the price of a produce line.
+
+**Decision — the rate change is a two-step transaction:**
+
+1. Lock the produce line row: `SELECT ... FOR UPDATE`.
+2. Find the currently-open rate (`effective_to IS NULL`) for that line.
+3. Validate the requested `effective_from`:
+   - If there is an open rate, `effective_from` must be strictly after
+     that rate's `effective_from`. Requesting a date at or before the
+     current rate's start would require rewriting the timeline, which we
+     do not do.
+4. Close the current rate: `current.effective_to = new.effective_from`.
+5. Insert the new rate, open-ended (`effective_to = NULL`).
+6. Commit atomically.
+
+If there is no current rate (first rate for this produce line), we skip
+step 4 and just insert.
+
+**Why lock the produce line:**
+Two admins setting rates concurrently would otherwise both close the same
+current rate and both insert new open-ended ones. The exclusion constraint
+would fire on the second commit, but the error ("conflicting key value
+violates exclusion constraint ex_rate_no_overlap") is useless to an admin.
+Locking the produce line serializes the operation and turns the failure
+into a clean, expected case.
+
+**Why the exclusion constraint stays:**
+App-level validation is easy to bypass: a bug, a script, a future code
+path that forgets the protocol. The DB constraint is the last line of
+defense. We keep both; they serve different purposes.
+
+**Decision — backdating is allowed but the client is warned.**
+
+A rate can be set with an `effective_from` in the past, provided it is
+still after the current open rate's start. This is legitimate: committee
+decisions sometimes reach the system late.
+
+When a rate is created with an `effective_from` before today, we count
+deliveries in the affected window whose `rate_snapshot` no longer matches
+the newly-set rate:
+
+    affected = COUNT(deliveries
+                     WHERE produce_line_id = X
+                       AND delivered_at >= new.effective_from
+                       AND reversal_of_id IS NULL
+                       AND rate_snapshot <> new.rate_per_unit)
+
+The count is returned in the response as `affected_deliveries`.
+
+**We do NOT automatically rewrite affected deliveries.** Their snapshots
+are frozen facts (D-008). Correcting them requires the reversal mechanism
+and, in the money case, a financial correction — both of which are
+explicit operations with their own audit trail. Automatic rewriting would
+violate the trust model the whole system is built around.
+
+**Decision — response shape returns both sides of the timeline.**
+
+`POST /produce-lines/{id}/rates` returns:
+
+    {
+      "new_rate": { ... , "effective_to": null },
+      "previous_rate": { ... , "effective_to": "<new effective_from>" } | null,
+      "affected_deliveries": <int>
+    }
+
+One round trip updates the client's full view. The first-rate case returns
+`previous_rate: null`.
+
+**Decision — rates have no update and no delete endpoint.**
+
+There is no `PATCH /rates/{id}` and no `DELETE /rates/{id}`. To change the
+future rate, an admin sets a new rate. To undo a wrong rate that hasn't
+taken effect yet, an admin sets a corrected rate with the same
+`effective_from` — which fails, because `effective_from` must be strictly
+after the current open rate's start.
+
+**Reversal trigger for that last case:** if we hit it in practice (admin
+sets a future rate by mistake, wants to remove it), we would need a
+"revoke unstarted rate" endpoint that closes the offending rate at its
+own start date. This is a documented gap, not a bug. If a cooperative
+needs it, we add it deliberately.
+
+**Consequences:**
+- The rate history is append-only and queryable at any date.
+- Deliveries snapshot their rate and are never retroactively changed.
+- Concurrent rate changes produce clean, deterministic outcomes.
+- Backdating produces a visible warning count, not a silent mutation.
+
+**Authorization:**
+Only `admin` may create, update, or deactivate produce lines, or set
+rates. `clerk` may read.
