@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     environment: str = "development"
     secret_key: str
 
+    # Currency used when a delivery is recorded for a produce line that has
+    # never had a rate. Replaced by the cooperative's currency when
+    # multi-cooperative support arrives. See D-019.
+    default_currency: str = "KES"
+
     # JWT
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"

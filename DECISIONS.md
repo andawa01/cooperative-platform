@@ -1106,3 +1106,105 @@ needs it, we add it deliberately.
 **Authorization:**
 Only `admin` may create, update, or deactivate produce lines, or set
 rates. `clerk` may read.
+
+## D-019 — Delivery service: valuation, reversal cascade, and ledger math
+
+**Date:** 2026-10-14
+**Status:** Accepted
+
+**Context:**
+D-008 defined the Delivery table and its invariants. D-010 defined the
+ledger model. This entry records the *service-layer* rules that the DB
+cannot enforce — how deliveries are valued, reversed, and summed into the
+farmer's financial position.
+
+**Decision — unvalued deliveries are allowed, then valued once.**
+
+A delivery recorded for a produce line with no applicable rate has
+`rate_snapshot = NULL`. This is a legitimate state ("pending valuation"),
+not an error. It supports the brief's field-reality requirement: a clerk
+must be able to record a physical event even if the price hasn't been
+configured for that date.
+
+Valuation is a **one-time, audited operation**:
+  POST /deliveries/{id}/value (admin only)
+
+It looks up the rate effective on the delivery's `delivered_at` and
+snapshots it. If no rate applies even then, the operation fails with a
+clear error and the delivery remains pending.
+
+**This is a documented exception to delivery immutability.** A delivery
+is immutable once valued. Before valuation, exactly one write is
+permitted: the value assignment itself. It is never overwritten.
+
+**Decision — reversal cascades to allocations, same transaction.**
+
+Reversing a delivery:
+1. Locks the delivery row, the farmer row, and the delivery's allocations.
+2. Inserts a compensating delivery with negative quantity and matching
+   snapshots.
+3. Inserts compensating rows for every non-reversed allocation against
+   the original delivery.
+4. Commits atomically.
+
+**Why cascade:**
+If the delivery is reversed but its allocations are not, the ledger
+becomes inconsistent: `SUM(delivery values)` drops by the reversed amount
+but `SUM(allocations)` does not, producing negative "outstanding debt"
+for that farmer. Negative debt is not a meaningful state.
+
+After cascading, the reversal correctly restores both:
+- The farmer's outstanding debt for that delivery (back to pre-delivery)
+- The farmer's available credit (the payment that settled the delivery
+  is once again unallocated and counts as credit on account)
+
+**Decision — reversal timestamps.**
+
+The reversal row's `delivered_at` inherits the original's
+`delivered_at`. It is a reconciliation anchor, NOT evidence of a second
+physical delivery. The reversal's `recorded_at` is the current time, and
+`recorded_by_id` is the admin who performed it. The notes field carries
+the required reason prefixed with `[reversal] `.
+
+This preserves the invariant `delivered_at <= recorded_at + interval '1 hour'`
+without special cases, and keeps the reversal attached to the period it
+corrects in aggregations.
+
+**Decision — balance formulas (canonical).**
+
+Computed in `app/services/ledger.py`, and reused verbatim by the statement
+endpoint (B.8). Both must agree.
+
+    total_delivery_value = SUM(quantity * rate_snapshot)      -- over ALL deliveries with rate_snapshot NOT NULL
+    net_allocations      = SUM(payment_allocations.amount)     -- over ALL allocations whose delivery is this farmer's
+    net_payments         = SUM(payments.amount)                -- over ALL payments for this farmer
+
+    outstanding_debt          = total_delivery_value - net_allocations
+    allocated_to_deliveries   = net_allocations                  -- informational
+    available_credit          = net_payments - net_allocations
+    pending_valuation_count   = COUNT(deliveries WHERE rate_snapshot IS NULL)
+
+**Critical detail:** none of the sums filter on `reversal_of_id`. Reversal
+rows are signed (negative) and aggregate correctly when included. Filtering
+them out (e.g. `WHERE reversal_of_id IS NULL`) would produce wrong totals
+for anything that has been reversed.
+
+**Why "allocated_to_deliveries" is reported even though it is derivable:**
+It is a hint. It answers "how much of what we owed has been formally
+settled" without implying it should be subtracted from debt a second time
+(it already is, because debt = value - allocations). The response shape
+makes the three-way distinction visible so clients cannot confuse them.
+
+**Concurrency:**
+- Recording a delivery is not financial. No farmer lock.
+- Valuing a delivery takes the farmer lock (it changes financial state).
+- Reversing a delivery takes the farmer lock (D-010's protocol).
+
+**Consequences:**
+- `delivery.amount` is computed, not stored (D-008).
+- The balance endpoint and the future statement endpoint share code, so
+  they cannot disagree.
+- A delivery can sit in pending-valuation indefinitely; admins find them
+  with `GET /deliveries?unvalued_only=true`.
+- Reversing a delivery produces visible, auditable side effects on
+  allocations — nothing is silently deleted.
