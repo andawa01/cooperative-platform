@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.models.delivery import Delivery
 from app.models.farmer import Farmer
+from app.db.session import write_transaction
 from app.models.payment import Payment, PaymentAllocation, PaymentStatus
 from app.models.user import User
 from app.schemas.payment import PaymentCreate
@@ -150,31 +151,27 @@ def record_payment(
 
     Raises IdempotencyConflict if the key matches but the fingerprint doesn't.
     Raises validation exceptions for manual-allocation problems.
+
+    Note on transaction structure:
+    The transaction opens FIRST, then the farmer lock, then the idempotency
+    check. Placing the idempotency check inside the transaction (rather
+    than as a fast-path pre-check) is both more correct under concurrency
+    (two concurrent identical requests cannot both pass the pre-check) and
+    necessary for the session state to be clean when `db.begin()` runs.
     """
     fingerprint = _fingerprint(data)
 
-    # --- Idempotency check (before anything else) -----------------------
-    existing = db.scalar(
-        select(Payment).where(Payment.idempotency_key == data.idempotency_key)
-    )
-    if existing is not None:
-        if existing.idempotency_fingerprint != fingerprint:
-            raise IdempotencyConflict(
-                "idempotency key reused with a different request body"
-            )
-        return existing, True
-
-    # --- Transactional creation -----------------------------------------
-    with db.begin():
-        # Farmer lock: serializes all financial writes for this farmer.
+    with write_transaction(db):
+        # Farmer lock: serialization point for all financial writes.
         farmer = db.scalar(
             select(Farmer).where(Farmer.id == data.farmer_id).with_for_update()
         )
         if farmer is None:
             raise FarmerNotFound()
 
-        # Re-check idempotency under the lock (two concurrent identical
-        # requests: one wins, the other sees the row and replays).
+        # Idempotency check inside the transaction. Two concurrent requests
+        # with the same key serialize on the farmer lock; the second finds
+        # the first's row and replays.
         existing = db.scalar(
             select(Payment).where(Payment.idempotency_key == data.idempotency_key)
         )
@@ -201,14 +198,18 @@ def record_payment(
             notes=data.notes,
         )
         db.add(payment)
-        db.flush()  # assign payment.id
+        db.flush()
 
         if data.allocations:
             _allocate_manual(db, payment, farmer, data.allocations)
         else:
             _allocate_fifo(db, payment, farmer)
 
-    db.refresh(payment)
+        # Refresh INSIDE the transaction. A SELECT after the `with` block
+        # would implicitly begin a new transaction, leaving the session
+        # dirty and making the next `db.begin()` on it fail.
+        db.refresh(payment)
+
     return payment, False
 
 
@@ -325,7 +326,7 @@ def reverse_payment(
 
     Original payment's status is NOT changed (see D-020).
     """
-    with db.begin():
+    with write_transaction(db):
         original = db.scalar(
             select(Payment).where(Payment.id == payment_id).with_for_update()
         )
@@ -388,7 +389,8 @@ def reverse_payment(
                 )
             )
 
-    db.refresh(reversal)
+        db.refresh(reversal)
+
     return reversal
 
 

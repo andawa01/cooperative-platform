@@ -31,6 +31,7 @@ from app.models.produce import ProduceLine, Rate
 from app.models.user import User
 from app.schemas.delivery import DeliveryCreate
 from app.core.config import settings
+from app.db.session import write_transaction
 
 
 # ---------------------------------------------------------------------------
@@ -154,8 +155,11 @@ def record_delivery(
         notes=data.notes,
     )
     db.add(delivery)
-    db.commit()
+    db.flush()
+    # Refresh before committing: a SELECT after commit would implicitly
+    # begin a new transaction and leave the session dirty for the caller.
     db.refresh(delivery)
+    db.commit()
     return delivery
 
 
@@ -245,7 +249,7 @@ def value_delivery(
     Takes the farmer-row lock to serialize against concurrent reversals or
     other financial writes.
     """
-    with db.begin():
+    with write_transaction(db):
         delivery = db.scalar(
             select(Delivery).where(Delivery.id == delivery_id).with_for_update()
         )
@@ -277,7 +281,8 @@ def value_delivery(
         delivery.rate_snapshot = rate.rate_per_unit
         delivery.currency_snapshot = rate.currency
 
-    db.refresh(delivery)
+        db.refresh(delivery)
+
     return delivery
 
 
@@ -299,7 +304,7 @@ def reverse_delivery(
 
     Returns the new reversal row. Callers usually don't need the original.
     """
-    with db.begin():
+    with write_transaction(db):
         original = db.scalar(
             select(Delivery).where(Delivery.id == delivery_id).with_for_update()
         )
@@ -366,5 +371,7 @@ def reverse_delivery(
             )
             db.add(reversal_alloc)
 
-    db.refresh(reversal)
+        db.flush()
+        db.refresh(reversal)
+
     return reversal

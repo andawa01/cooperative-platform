@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
+from app.db.session import write_transaction
 from app.models.user import User, UserRole
 from app.schemas.auth import RegisterRequest
 
@@ -44,7 +45,7 @@ def create_user(db: Session, data: RegisterRequest) -> User:
     - Otherwise, the requested role applies (the router is responsible for
       having verified the caller is authorized to create users).
     """
-    with db.begin():
+    with write_transaction(db):
         # Take a transaction-scoped advisory lock so concurrent bootstraps
         # serialize instead of racing. Released automatically at commit/rollback.
         db.execute(

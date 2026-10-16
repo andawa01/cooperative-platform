@@ -1397,3 +1397,102 @@ later, we introduce an i18n layer at the service boundary.
 - If we need multi-currency statements, `currency` moves from a single
   top-level field to per-entry, and the running pair either takes a
   conversion rate or splits into per-currency pairs.
+
+## D-022 — Test strategy: money paths and permission boundaries, verified under concurrency
+
+**Date:** 2026-10-15
+**Status:** Accepted
+
+**Context:**
+The brief names two things that must be on the test list: money paths and
+permission boundaries. It also warns that coverage numbers are not the
+point — reasoning about *what* we test is.
+
+This entry records what we test, how, and — most importantly — why those
+are the tests that matter.
+
+**Decision — we test four things:**
+
+1. **Money correctness under concurrency.** The four tests in
+   `test_money_concurrency.py` are the direct answer to "it must not be
+   possible to pay for the same thing twice."
+
+2. **Permission boundaries at the HTTP layer.** The tests in
+   `test_permissions.py` exercise the actual FastAPI app (via TestClient)
+   and assert 401 vs 403 vs 200 on protected endpoints. A role model that
+   is not tested at the HTTP layer is not tested at all.
+
+3. **Ledger arithmetic.** Balance and statement must agree for the same
+   period (they share code by design, and the closing/balance invariant is
+   asserted in the money tests).
+
+4. **Startup.** If the app fails to import, every other test fails, but the
+   failure message can be confusing. A clean import check is implicitly
+   covered by the HTTP tests.
+
+We deliberately do NOT chase coverage numbers. We do NOT test every Pydantic
+field. We do NOT mock the database. The tests exercise real PostgreSQL with
+real constraints and real row locks because that is where the interesting
+failures live.
+
+**Decision — two test isolation strategies coexist.**
+
+Ordinary tests (permissions, service-level logic) share a single transaction
+with the service under test. This makes them fast and isolated: the
+transaction is rolled back at the end of each test, and the database stays
+pristine.
+
+Concurrency tests need *real* commits and *real* locks — because that is the
+thing under test. They use independent sessions on independent connections,
+one per worker thread, and they commit for real. Cleanup is explicit.
+
+We made service transactions composable to support both:
+`app/db/transaction.py` provides a `transaction(db)` context manager that
+opens a real transaction on a fresh session and a savepoint on a session
+that already has one. This is what lets the same service code work
+correctly in production and in both test isolation strategies.
+
+**Decision — the four concurrency tests, and what each proves.**
+
+| # | Test | What it proves |
+|---|---|---|
+| 1 | Two payments, both attempting to over-allocate one delivery | The farmer-row lock serialises financial writes; no delivery is ever over-settled |
+| 2 | Same idempotency key, same body, concurrent threads | Exactly one payment row is created; both threads receive the same id |
+| 3 | Reversing a payment | The cascade restores both outstanding debt and available credit to their pre-payment state |
+| 4 | Concurrent delivery reversal + payment creation | The farmer lock protects against lost updates; the ledger remains internally consistent |
+
+**Decision — no coverage target.**
+
+We measure nothing in CI except pass/fail. Coverage percentage is a
+diagnostic, not a goal. Tests that assert behavior a business person would
+recognise ("a clerk may not reverse a payment") earn their keep. Tests
+that assert "line 42 was executed" do not.
+
+**What we deliberately did NOT test, and why:**
+
+- **FastAPI request/response validation for every field.** Pydantic is
+  well-tested; re-testing it adds noise. We test our rules, not the
+  framework's.
+- **Argon2 parameters and JWT encoding.** Same reasoning. If our hash
+  string parses and our token decodes, we trust the libraries.
+- **Every HTTP endpoint for the happy path.** We test representative
+  cases (creation, denial, one representative conflict). The permission
+  matrix is exhaustively covered for denials, not for acceptances, because
+  denials are the security-relevant case.
+- **Frontend.** No frontend exists yet. When it does, the browser-level
+  tests will live in the frontend repo, not here.
+
+**Consequences:**
+- `pytest -m "not concurrency"` runs fast; `pytest -m concurrency` runs
+  slower but proves the money model.
+- The four concurrency tests are the *only* tests in this project that
+  would make me block a release if they failed. Everything else is
+  important; these are existential.
+- Service code cannot break the composition of transactions without the
+  tests failing loudly.
+
+**Reversal triggers:**
+- If we add a second write path (e.g., a background job that records
+  payments), we add a fifth concurrency test for that path.
+- If we move to async FastAPI + AsyncSession, the test isolation strategy
+  changes; the four tests' assertions stay the same.

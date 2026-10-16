@@ -17,6 +17,7 @@ ENV_FILE = BACKEND_DIR / ".env"
 class Settings(BaseSettings):
     # Database
     database_url: str
+    database_url_test: str = ""
 
     # App
     environment: str = "development"
