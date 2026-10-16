@@ -7,6 +7,7 @@ here, Alembic will silently miss it and propose to DROP the table next run.
 """
 from app.models.delivery import Delivery
 from app.models.farmer import Farmer, FarmerStatus
+from app.models.notification import Notification, NotificationChannel, NotificationTemplate
 from app.models.payment import (
     Payment,
     PaymentAllocation,
@@ -27,4 +28,7 @@ __all__ = [
     "PaymentMethod",
     "PaymentStatus",
     "PaymentAllocation",
+    "Notification",
+    "NotificationChannel",
+    "NotificationTemplate",
 ]

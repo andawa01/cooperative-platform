@@ -18,5 +18,21 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: shambatrack_redis
+    restart: unless-stopped
+    # We deliberately do NOT enable Redis persistence (RDB/AOF).
+    # See D-024: the notification history lives in Postgres. Redis holds
+    # operational dispatch state, which is fine to lose on restart.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:

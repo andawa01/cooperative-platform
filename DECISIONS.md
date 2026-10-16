@@ -1572,3 +1572,104 @@ demo credentials only; production would use `settings`-sourced values.
 - If we support multi-cooperative tenancy, the seed produces data for
   one cooperative by default, with a `--cooperative` flag to target
   another.
+
+## D-024 — Two persistence stores: Postgres for facts, Redis for dispatch
+
+**Date:** 2026-10-16
+**Status:** Accepted
+
+**Context:**
+The brief requires two persistence paradigms, each used for data it
+genuinely suits, with one honest rejected alternative documented.
+
+Notifications (expansion area 4) and background work (expansion area 8)
+are the two requirements that need a queue. Together they force the
+decision: what lives in Postgres, what lives in Redis, and why.
+
+**Decision — Postgres holds the durable Notification record.**
+
+The canonical fact is: *"at time T, we sent message M to farmer F about
+entity E."* This record:
+
+- Must survive a Redis restart. It is part of our audit trail of what we
+  told a farmer.
+- Joins naturally to `farmers`, and via a polymorphic pointer to
+  `deliveries` and `payments`.
+- Answers "what did we send this farmer last month?" — a relational query.
+
+**Decision — Redis holds the dispatch state.**
+
+The pipeline state is:
+
+- The queue itself (a Redis LIST, LPUSH/BRPOP).
+- A retry schedule (a Redis SORTED SET scored by due timestamp).
+- Per-notification dispatch state (a Redis HASH: status, attempts,
+  last_error, sent_at).
+
+This is transient, high-churn, and TTL-friendly. Exactly the shape Redis
+is optimised for.
+
+**What we considered putting in Postgres and did not:**
+
+We considered modelling the queue as a Postgres table (`notification_jobs`
+with `status`, `locked_at`, `attempts` columns) and using `SELECT ...
+FOR UPDATE SKIP LOCKED` for dequeue. This is a legitimate pattern —
+`pgmq`, `que`, and others do it well — but it would:
+
+- Multiply rows fast (every retry is a new row or an UPDATE).
+- Mix operational ephemera into our money-adjacent schema.
+- Require more involved query tuning to avoid table bloat.
+- Lose the natural `BRPOP` blocking semantics that keep the worker simple.
+
+We chose Redis. If we ever need *transactional* enqueue (a delivery and
+its notification row must be written atomically), we would revisit — and
+the answer would likely be "write the fact to Postgres and the job to
+Postgres too, in one transaction, then relay to Redis".
+
+**What we considered putting in Redis and did not:**
+
+We considered caching the farmer balance in Redis (via
+`compute_balance()`). This would trade a small amount of query time for
+cache-invalidation complexity on every delivery/payment/reversal. For
+MVP with a few thousand farmers, derivation is fast enough. When we need
+caching, we will add it behind a documented invalidation strategy and a
+reconciliation job that compares cached vs derived.
+
+**Decision — Redis persistence is disabled.**
+
+The Redis container runs with `--save "" --appendonly no`. On restart,
+in-flight queue state is lost. This is deliberate:
+
+- The Postgres record is the truth. Redis holds "where in the pipeline
+  this is."
+- If Redis restarts and loses the queue, an admin can find
+  "queued but never sent" notifications via the API and call retry.
+- Persistent Redis (RDB/AOF) would trade startup cost and disk usage for
+  a benefit we do not need — the durable part is already elsewhere.
+
+**Decision — at-least-once delivery, not exactly-once.**
+
+A crash between "gateway accepted the SMS" and "we wrote sent to Redis"
+means a retry may resend the SMS. For a delivery confirmation, this is
+annoying; it is not dangerous. True exactly-once is impossible without
+cooperation from the SMS provider, and the cost of attempting it would
+outweigh the benefit for MVP. Documented rather than hand-waved.
+
+**Consequences:**
+- The notification subsystem is a small, self-contained pipeline.
+- Postgres row creation is never blocked by Redis. If Redis is
+  unreachable, the durable record still exists (`status="queued_redis_unreachable"`)
+  and an admin can retry.
+- `docker compose up` brings up both stores; both are load-bearing.
+- Running the API is one process; running the worker is a second.
+  Deployment must run both.
+
+**Reversal triggers:**
+- If we integrate a real SMS gateway with delivery receipts (webhooks),
+  we add a `delivered_at` field to the Postgres record and stop inferring
+  delivery from send success.
+- If the notification volume grows past Redis's memory headroom, we move
+  the queue to a managed stream (Redis Streams or Kafka) with a consumer
+  group, keeping the two-store split.
+- If Redis ever needs persistence, we turn it on and document why —
+  persistence is a cost, not a default.

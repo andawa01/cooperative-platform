@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 
+from app.core.redis_client import ping as redis_ping
+
 router = APIRouter(tags=["health"])
 
 
@@ -29,3 +31,8 @@ def health_db(db: Session = Depends(get_db)):
         return {"status": "ok", "database": "reachable"}
     except Exception as exc:
         return {"status": "error", "database": "unreachable", "detail": str(exc)}
+
+@router.get("/health/redis")
+def health_redis():
+    ok = redis_ping()
+    return {"status": "ok" if ok else "error", "redis": "reachable" if ok else "unreachable"}

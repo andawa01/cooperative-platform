@@ -22,6 +22,7 @@ from app.schemas.payment import (
     PaymentReverseRequest,
 )
 from app.services import payment as payment_service
+from app.services import notifications as notif_service
 from app.services.payment import (
     AllocationDeliveryNotFound,
     AllocationExceedsRemaining,
@@ -81,15 +82,15 @@ def record_payment(
 ):
     try:
         payment, replayed = payment_service.record_payment(db, payload, actor)
-    except (
-        FarmerNotFound,
-        IdempotencyConflict,
-        DuplicateAllocationDelivery,
-        AllocationDeliveryNotFound,
-        AllocationExceedsRemaining,
-        AllocationsExceedPayment,
-    ) as exc:
+    except (...) as exc:
         raise _translate(exc)
+
+    # Only notify on the first successful creation, never on replay.
+    if not replayed:
+        try:
+            notif_service.enqueue_payment_recorded(db, payment)
+        except Exception:  # noqa: BLE001
+            pass
 
     if replayed:
         response.headers["Idempotency-Replayed"] = "true"

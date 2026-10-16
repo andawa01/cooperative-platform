@@ -26,6 +26,7 @@ from app.schemas.delivery import (
 )
 from app.services import delivery as delivery_service
 from app.services import ledger as ledger_service
+from app.services import notifications as notif_service
 from app.services.delivery import (
     DeliveryAlreadyReversed,
     DeliveryNotFound,
@@ -78,7 +79,7 @@ def record_delivery(
 ):
     """Record a delivery. Admin or clerk. Idempotency is the client's job."""
     try:
-        return delivery_service.record_delivery(db, payload, actor)
+        delivery = delivery_service.record_delivery(db, payload, actor)
     except (
         FarmerNotFound,
         ProduceLineNotFound,
@@ -86,6 +87,16 @@ def record_delivery(
         ProduceLineInactive,
     ) as exc:
         raise _translate(exc)
+
+    # Best-effort SMS notification. The delivery is committed regardless
+    # of whether Redis is reachable; see D-024.
+    try:
+        notif_service.enqueue_delivery_recorded(db, delivery)
+    except Exception:  # noqa: BLE001
+        # Never let a notification failure hide a successful delivery.
+        pass
+
+    return delivery
 
 
 @router.get("/deliveries", response_model=DeliveryListResponse)

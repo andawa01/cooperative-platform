@@ -35,6 +35,7 @@ pytest==9.1.1
 pytest-cov==7.1.0
 python-dotenv==1.2.4
 PyYAML==6.0.3
+redis==8.1.0
 SQLAlchemy==2.1.4
 starlette==1.7.0
 typing-inspection==0.4.4

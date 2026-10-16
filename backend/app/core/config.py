@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     # multi-cooperative support arrives. See D-019.
     default_currency: str = "KES"
 
+    # Redis (see D-024)
+    redis_url: str = "redis://localhost:6379/0"
+    # SMS dispatch
+    sms_max_attempts: int = 3
+    sms_backoff_seconds: tuple[int, ...] = (2, 8, 30)
+    # Simulated gateway failure rate (0.0–1.0). Set to 0 in prod once a
+    # real gateway is wired in.
+    sms_simulated_failure_rate: float = 0.1
+
     # JWT
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
