@@ -1496,3 +1496,79 @@ that assert "line 42 was executed" do not.
   payments), we add a fifth concurrency test for that path.
 - If we move to async FastAPI + AsyncSession, the test isolation strategy
   changes; the four tests' assertions stay the same.
+
+## D-023 — Seed data: deterministic, service-layer-first, guarded
+
+**Date:** 2026-10-16
+**Status:** Accepted
+
+**Context:**
+The brief requires "seed data included in both [local and live], so we
+land in a system that already has realistic activity across all your
+roles and chosen expansion areas."
+
+This is a hard requirement, not a nicety. An empty database makes the
+demo unimpressive and the deployed submission harder to evaluate.
+
+**Decision — hybrid access, service-first for business data.**
+
+- **Reference data** (users, produce lines, rates) is inserted directly
+  via the ORM. These entities have minimal business rules and no
+  interesting invariants to exercise.
+- **Business data** (farmers, deliveries, payments, reversals) is
+  inserted via the service layer. This is deliberate: it means the seed
+  exercises the same code path as production. If a service has a bug or
+  an over-tight constraint, the seed surfaces it. It also means the seed
+  cannot produce data that the API would refuse to produce.
+
+**Decision — the seed is deterministic.**
+
+All randomness flows from `random.Random(42)`. Running the seed twice
+produces the same data. This matters for screenshots, documentation, and
+demo reproducibility.
+
+**Decision — the seed refuses to run against a non-empty database.**
+
+By default, `python -m scripts.seed` checks for existing users. If any
+exist, it prints an error and exits without touching anything. To
+force-overwrite, pass `--reset`.
+
+A seed script that silently destroys data is a footgun. We chose the
+safer default.
+
+**Decision — the seed deliberately includes edge cases.**
+
+Not just the happy path. A demo that shows only "everything is fine" is
+not a demo of the system's design. Seed includes:
+
+| Category | What's seeded | What it demonstrates |
+|---|---|---|
+| Farmers | 24 active, 3 pending, 2 suspended, 1 archived | The farmer lifecycle, not just the "active" state |
+| Produce lines | 4 (coffee, tea, dairy, banana) | The banana line has no rate, deliberately |
+| Rates | 6 (two per rated line) | Effective-dating: historical + current |
+| Deliveries | ~150 over 6 months | Time-distributed data |
+| Unvalued deliveries | ~5 (banana) | The pending-valuation workflow |
+| Payments | 12 FIFO + 1 advance | Both normal payout and credit-on-account |
+| Reversals | 1 delivery + 1 payment | The correction flow in both directions |
+
+**Decision — the seed prints demo credentials at the end.**
+
+Known accounts (admin@shambatrack.io / demo-admin-123 and three clerks)
+make the deployed demo walkable without needing to register. These are
+demo credentials only; production would use `settings`-sourced values.
+
+**Consequences:**
+- A fresh clone can be running with realistic data in one command:
+  `docker compose up -d && alembic upgrade head && python -m scripts.seed`
+- The seed script is a smoke test for the whole business layer. If a
+  service regresses in a way that breaks realistic usage, the seed fails
+  loudly.
+- Reset is explicit and opt-in.
+
+**Reversal triggers:**
+- If seeding becomes slow (e.g. thousands of rows), we batch direct
+  inserts for the bulk and keep services for a small representative
+  sample.
+- If we support multi-cooperative tenancy, the seed produces data for
+  one cooperative by default, with a `--cooperative` flag to target
+  another.
