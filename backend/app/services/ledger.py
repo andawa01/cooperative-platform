@@ -24,29 +24,29 @@ Definitions (see DECISIONS.md D-019):
   NULL. Disclosed so admins can act; excluded from outstanding_debt
   because they have no value yet.
 """
+
 import uuid
-from datetime import datetime
-from app.models.payment import Payment
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.delivery import Delivery
-from app.models.payment import Payment
-from app.models.payment import PaymentAllocation
-
+from app.models.payment import Payment, PaymentAllocation
 
 ZERO = Decimal("0.0000")
 
 
 @dataclass(frozen=True)
 class FarmerBalance:
-    outstanding_debt: Decimal          # what the co-op still owes the farmer for deliveries
-    allocated_to_deliveries: Decimal   # informational; already reflected in outstanding_debt
-    available_credit: Decimal          # money on account, available to allocate to future deliveries
-    pending_valuation_deliveries: int  # count; not included in outstanding_debt
+    outstanding_debt: Decimal  # co-op still owes the farmer for deliveries
+    # informational; already reflected in outstanding_debt
+    allocated_to_deliveries: Decimal
+    # money on account, available to allocate to future deliveries
+    available_credit: Decimal
+    pending_valuation_deliveries: int  # count; not in outstanding_debt
 
 
 def _sum_delivery_value(db: Session, farmer_id: uuid.UUID) -> Decimal:
@@ -56,7 +56,9 @@ def _sum_delivery_value(db: Session, farmer_id: uuid.UUID) -> Decimal:
     NULL rate_snapshot are excluded — they have no value yet.
     """
     stmt = (
-        select(func.coalesce(func.sum(Delivery.quantity * Delivery.rate_snapshot), ZERO))
+        select(
+            func.coalesce(func.sum(Delivery.quantity * Delivery.rate_snapshot), ZERO)
+        )
         .where(Delivery.farmer_id == farmer_id)
         .where(Delivery.rate_snapshot.is_not(None))
     )
@@ -64,9 +66,7 @@ def _sum_delivery_value(db: Session, farmer_id: uuid.UUID) -> Decimal:
     return value if value is not None else ZERO
 
 
-def _sum_net_allocations_for_farmer(
-    db: Session, farmer_id: uuid.UUID
-) -> Decimal:
+def _sum_net_allocations_for_farmer(db: Session, farmer_id: uuid.UUID) -> Decimal:
     """
     Sum of every PaymentAllocation amount whose delivery belongs to this
     farmer, INCLUDING allocation reversals (negative rows).
@@ -85,24 +85,24 @@ def _sum_net_payments(db: Session, farmer_id: uuid.UUID) -> Decimal:
     Sum of every Payment amount for this farmer, INCLUDING payment reversals
     (negative rows).
     """
-    stmt = (
-        select(func.coalesce(func.sum(Payment.amount), ZERO))
-        .where(Payment.farmer_id == farmer_id)
+    stmt = select(func.coalesce(func.sum(Payment.amount), ZERO)).where(
+        Payment.farmer_id == farmer_id
     )
     value = db.scalar(stmt)
     return value if value is not None else ZERO
 
 
-def _count_pending_valuation(
-    db: Session, farmer_id: uuid.UUID
-) -> int:
+def _count_pending_valuation(db: Session, farmer_id: uuid.UUID) -> int:
     """Number of deliveries awaiting valuation (rate_snapshot IS NULL)."""
-    return db.scalar(
-        select(func.count())
-        .select_from(Delivery)
-        .where(Delivery.farmer_id == farmer_id)
-        .where(Delivery.rate_snapshot.is_(None))
-    ) or 0
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(Delivery)
+            .where(Delivery.farmer_id == farmer_id)
+            .where(Delivery.rate_snapshot.is_(None))
+        )
+        or 0
+    )
 
 
 def compute_balance(db: Session, farmer_id: uuid.UUID) -> FarmerBalance:
@@ -127,6 +127,7 @@ def compute_balance(db: Session, farmer_id: uuid.UUID) -> FarmerBalance:
         pending_valuation_deliveries=pending,
     )
 
+
 def compute_balance_at(
     db: Session,
     farmer_id: uuid.UUID,
@@ -141,25 +142,38 @@ def compute_balance_at(
         d_cond = Delivery.delivered_at < as_of
         p_cond = Payment.paid_at < as_of
 
-    delivery_value = db.scalar(
-        select(func.coalesce(func.sum(Delivery.quantity * Delivery.rate_snapshot), ZERO))
-        .where(Delivery.farmer_id == farmer_id)
-        .where(Delivery.rate_snapshot.is_not(None))
-        .where(d_cond)
-    ) or ZERO
+    delivery_value = (
+        db.scalar(
+            select(
+                func.coalesce(
+                    func.sum(Delivery.quantity * Delivery.rate_snapshot), ZERO
+                )
+            )
+            .where(Delivery.farmer_id == farmer_id)
+            .where(Delivery.rate_snapshot.is_not(None))
+            .where(d_cond)
+        )
+        or ZERO
+    )
 
-    allocations = db.scalar(
-        select(func.coalesce(func.sum(PaymentAllocation.amount), ZERO))
-        .join(Payment, Payment.id == PaymentAllocation.payment_id)
-        .where(Payment.farmer_id == farmer_id)
-        .where(p_cond)
-    ) or ZERO
+    allocations = (
+        db.scalar(
+            select(func.coalesce(func.sum(PaymentAllocation.amount), ZERO))
+            .join(Payment, Payment.id == PaymentAllocation.payment_id)
+            .where(Payment.farmer_id == farmer_id)
+            .where(p_cond)
+        )
+        or ZERO
+    )
 
-    payments = db.scalar(
-        select(func.coalesce(func.sum(Payment.amount), ZERO))
-        .where(Payment.farmer_id == farmer_id)
-        .where(p_cond)
-    ) or ZERO
+    payments = (
+        db.scalar(
+            select(func.coalesce(func.sum(Payment.amount), ZERO))
+            .where(Payment.farmer_id == farmer_id)
+            .where(p_cond)
+        )
+        or ZERO
+    )
 
     return FarmerBalance(
         outstanding_debt=delivery_value - allocations,

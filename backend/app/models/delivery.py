@@ -14,6 +14,7 @@ See DECISIONS.md D-008 for the full reasoning. Key points:
 - amount is NOT stored; it's quantity * rate_snapshot computed at read time
 - No partial reversals in MVP
 """
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -27,7 +28,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,9 +69,7 @@ class Delivery(BaseModel):
     # --- Valuation snapshot --------------------------------------------
     # Frozen at record time. If no rate was available for delivered_at,
     # this is NULL and the delivery is "pending valuation" (derived state).
-    rate_snapshot: Mapped[Decimal | None] = mapped_column(
-        Numeric(12, 4), nullable=True
-    )
+    rate_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     currency_snapshot: Mapped[str] = mapped_column(String(3), nullable=False)
 
     # --- Reversal linkage ----------------------------------------------
@@ -95,25 +93,21 @@ class Delivery(BaseModel):
             "(quantity < 0 AND reversal_of_id IS NOT NULL)",
             name="ck_delivery_normal_or_reversal",
         ),
-
         # A delivery can't be a reversal of itself.
         CheckConstraint(
             "reversal_of_id IS NULL OR reversal_of_id <> id",
             name="ck_delivery_no_self_reversal",
         ),
-
         # Rate, when present, must be positive.
         CheckConstraint(
             "rate_snapshot IS NULL OR rate_snapshot > 0",
             name="ck_delivery_rate_positive",
         ),
-
         # Currency is ISO 4217 (3 uppercase letters).
         CheckConstraint(
             "currency_snapshot ~ '^[A-Z]{3}$'",
             name="ck_delivery_currency_iso4217",
         ),
-
         # Physical event cannot be recorded AFTER the fact by more than a
         # tolerance (handles clock skew). Backdated deliveries are fine —
         # this only prevents future-dated records.
@@ -121,15 +115,21 @@ class Delivery(BaseModel):
             "delivered_at <= recorded_at + interval '1 hour'",
             name="ck_delivery_delivered_at_not_future",
         ),
-
         # No double-reversal: at most one reversal per original.
         # Multiple NULLs allowed (Postgres treats NULLs as distinct in
         # unique constraints), so normal deliveries are unaffected.
         UniqueConstraint("reversal_of_id", name="uq_delivery_reversal_of"),
-
         # Query indexes for the common access patterns.
         Index("ix_delivery_farmer_delivered_at", "farmer_id", "delivered_at"),
-        Index("ix_delivery_produce_line_delivered_at", "produce_line_id", "delivered_at"),
+        Index(
+            "ix_delivery_produce_line_delivered_at",
+            "produce_line_id",
+            "delivered_at",
+        ),
+        # The delivery list orders globally by (delivered_at, id), which the
+        # farmer-first composite index above cannot serve. `id` is included so
+        # the tie-break needs no sort.
+        Index("ix_delivery_delivered_at", "delivered_at", "id"),
         Index("ix_delivery_recorded_by", "recorded_by_id"),
     )
 

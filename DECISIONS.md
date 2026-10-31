@@ -793,6 +793,13 @@ If we ever need to accept reserved domains in development, we'd add a
 NOT relax the validator for the API itself — production emails should
 be checked strictly.
 
+**Amended 2026-10-20:** `SECRET_KEY` was removed. It was required by
+`Settings` and documented as deliberately separate from `JWT_SECRET_KEY`,
+but nothing ever read it — a required environment variable that silently
+does nothing is a deployment trap, not a safety margin. When a second key
+gains a real use (e.g. signing cookies or a refresh token), it returns with
+that use. The JWT decisions above stand unchanged.
+
 **Consequences:**
 - Auth endpoints behave identically for anonymous and authenticated
   actors up to the point of token issuance.
@@ -1673,3 +1680,573 @@ outweigh the benefit for MVP. Documented rather than hand-waved.
   group, keeping the two-store split.
 - If Redis ever needs persistence, we turn it on and document why —
   persistence is a cost, not a default.
+
+## D-025 — Frontend architecture
+
+**Date:** 2026-10-16
+**Status:** Accepted
+
+**Context:**
+The brief requires a "real frontend" that a non-technical clerk can use
+day-to-day on a mid-range phone as well as a desktop. Two usage modes
+must coexist:
+
+- Clerk mode (field, phone): fast, few taps, tolerant of poor signal.
+- Admin mode (office, desktop): dashboards, management, corrections.
+
+These are different enough that the UI must adapt, not just resize.
+
+**Decision — tech stack:**
+
+| Concern | Choice | Why |
+|---|---|---|
+| Build | Vite + React 19 + TypeScript | Fast dev loop, type safety |
+| Styling | Tailwind CSS v4 | Utility-first, small bundles, no design system to fight |
+| Components | shadcn/ui + Radix UI | Copy-in components we own; accessible primitives |
+| Data | TanStack Query | Caching, invalidation, loading/error states handled |
+| Routing | React Router v7 | Standard, documented, no surprises |
+| Forms | React Hook Form + Zod | Type-safe, minimal re-renders |
+| Icons | lucide-react | shadcn default, tree-shakeable |
+| Charts | Recharts | Simple API, works well with Tailwind |
+| Auth storage | localStorage (MVP) | See below |
+
+**Decision — mobile-first, breakpoints upward.**
+
+Clerks use the system in the field on a phone. The default layout and
+component sizes are mobile-first (larger tap targets, minimal chrome).
+The admin dashboard and management screens adapt upward for desktop.
+We do not design desktop-first and degrade.
+
+**Decision — token storage: localStorage for MVP, documented risk.**
+
+The JWT lives in `localStorage`. This is XSS-vulnerable in principle: any
+script that runs on the origin can read the token. We accept this for MVP
+because:
+
+1. We control all scripts on the page. There are no third-party widgets,
+   ads, or CDN-embedded scripts.
+2. The alternative (`httpOnly` cookies) requires CSRF protection on the
+   API, which is a meaningful addition to the backend for a small benefit
+   at this stage.
+3. Tokens expire in 12 hours; the blast radius of a leaked token is
+   bounded.
+
+We are honest about the trade-off in the code and here.
+
+**Reversal triggers:**
+- If we ever embed third-party widgets, iframes, or untrusted content,
+  we move auth to `httpOnly` cookies with CSRF tokens.
+- If we implement refresh tokens, the access token shortens and the
+  refresh token goes into a cookie.
+
+**Decision — hand-written TypeScript types for MVP.**
+
+The frontend has hand-written types mirroring the backend's OpenAPI
+schemas. Auto-generating them would add tooling complexity (codegen
+step, CI check) for a marginal benefit at MVP scale. If types drift, the
+API calls fail loudly — which is the right failure mode.
+
+A generation script (`npm run gen-types`) is a B.14 polish item, not a
+B.12 requirement.
+
+**Decision — no dark mode for MVP.**
+
+Dark mode doubles the CSS surface with no demo value. We build for one
+theme, done well. Noted as future work.**Consequences:**
+- Two usage modes are reflected in routing: clerk-facing views sit at
+  top level; admin-only views are gated by role in both routing and
+  navigation.
+- The API client is thin and typed. Query hooks wrap it per resource.
+- The app shell (layout, nav, header) handles role-based navigation.
+
+## D-026 — Dashboard: one aggregate endpoint, contract-first
+
+**Date:** 2026-10-20
+**Status:** Accepted
+
+**Context:**
+The home screen fired a dozen requests, or would have. Two shapes existed:
+an inline flat `DashboardResponse` on `GET /dashboard`, and a richer
+`DashboardSummary` in `app/schemas/dashboard.py` that nothing served. The
+frontend called `GET /dashboard/summary` — a path that did not exist — so
+the screen failed on load while the schema file sat unused.
+
+**Decision — the frontend's contract is the contract.**
+
+`GET /dashboard/summary?days=N` serves `DashboardSummary`. The flat
+endpoint is deleted rather than kept alongside it: two endpoints answering
+"how are we doing?" with different shapes is a trap, not a convenience.
+
+**Decision — the dashboard aggregates the ledger, it does not re-derive it.**
+
+Cooperative-wide totals use the same formulas as `ledger.compute_balance`
+(D-019): sum every delivery row with a non-NULL `rate_snapshot`, every
+payment row, and every allocation row — **including reversals**, because
+the sign is what does the work. Concretely, the invariant is:
+
+    sum(compute_balance(f).outstanding_debt for f in farmers)
+        == dashboard.outstanding_debt_total
+
+and the same for available credit and pending-valuation count. Note the
+pending count deliberately does **not** filter on `reversal_of_id`; the
+per-farmer count does not either, and the two must be summable.
+
+**Why this is tested, not asserted in prose:**
+`test_dashboard.py` compares the endpoint's totals against the ledger for
+the farmers it created. A manager's dashboard figure that no farmer's
+balance corroborates is worse than no dashboard at all, so the test earns
+its keep in the same sense as the money tests (D-022).
+
+The same test was also run once against the seeded development database
+(31 farmers, 154 deliveries, 17 payments): totals matched exactly,
+413756.8241 outstanding and 40713.1835 on account.
+
+**Decision — period semantics are stated, not implied.**
+
+`days=N` means today plus the N-1 preceding calendar days in UTC, so N
+buckets, zero-filled. Activity is dated by the business event
+(`delivered_at`, `paid_at`), never `recorded_at` — the same rule as the
+statement (D-021). Counts are events (reversals excluded); values are net
+(reversals included). A reversed delivery therefore drops out of the money
+but not out of the delivery count for the day it happened.
+
+`days` is bounded 1..730 for the same reason the statement range is.
+
+**Consequences:**
+- One request renders the home screen.
+- Dashboard figures and per-farmer figures cannot disagree without a test
+  failing.
+- The endpoint issues ~12 aggregate queries; measured at 36–89 ms against
+  the seed data (~170 ledger rows). Fine behind the frontend's 60 s
+  `staleTime`. If a cooperative outgrows it, the response shape is stable
+  enough to serve from materialised views (D-010).
+- Reversals of the flat endpoint have no callers to migrate.
+
+**Reversal triggers:**
+- If the dashboard needs per-cooperative scoping, every aggregate gains a
+  `cooperative_id` predicate — the shape stays.
+- If query count becomes the bottleneck, the per-line, per-day, and
+  activity queries collapse into one windowed query.
+
+## D-027 — List screens: one table, server-resolved names
+
+**Date:** 2026-10-20
+**Status:** Accepted
+
+**Context:**
+The five list screens (Farmers, Deliveries, Payments, Produce,
+Notifications) each rendered a stacked card list with their own ad-hoc
+header, filters and pagination. The same record looked different depending
+on which screen you were on, and none of them was a table in the sense an
+administrator expects: no columns, no scan-down-the-page reading, no
+consistent footer.
+
+The reference is the ICRMS data table: bordered card, muted header row with
+small uppercase labels, ruled rows, toolbar strip, in-table empty state,
+skeleton rows and a pagination footer.
+
+**Decision — one `DataTable`, column-driven, no table library.**
+
+`components/common/DataTable.tsx` takes `DataColumn<T>[]` and renders the
+whole card. Migrating a screen is now a column list plus a toolbar slot.
+
+We deliberately did **not** adopt `@tanstack/react-table` (which ICRMS
+uses). The backend paginates and offers no sort parameter, so client-side
+sorting would sort the current 25 rows and silently misrepresent the
+cooperative. When the API grows `sort`/`order`, the component can swap its
+internals without changing any page's column definitions.
+
+**Decision — the footer is the ICRMS footer.**
+
+`Showing 1 to 10 of 31 entries`, a `Rows per page` select (10 / 20 / 50 /
+100, default **10**), and numbered page buttons with single-page ellipsis
+gaps between chevrons. Changing the page size resets to the first page
+because the offset is meaningless across a different limit.
+
+Page size lives in each screen rather than in the table so the value can be
+sent to the API; the table only renders state and emits changes.
+
+**Decision — mobile column priority, not horizontal scrolling.**
+
+Columns declare `hideBelow: 'sm' | 'md' | 'lg' | 'xl'`. A phone shows the two
+or three columns that matter (e.g. Farmer + Status) and hides the rest;
+the identifying value is repeated inside the primary cell where a hidden
+column would otherwise be lost. This keeps the clerk-on-a-phone case
+(D-025) working without a second, card-based layout to maintain.
+
+**Decision — names are resolved by the API, not the client.**
+
+`DeliveryResponse` gained `farmer_name` and `produce_line_name`;
+`PaymentResponse` gained `farmer_name`. Both are resolved in the router with
+**bulk lookups per page** (two queries for a delivery page, one for a
+payment page), never one query per row. The alternative — the client
+fetching farmer and produce-line lists and joining by id — would go stale,
+break past the list page size, and put display logic in three places.
+
+These are live joins, not snapshots: renaming a farmer updates every
+historical row's label, while the delivery's rate snapshot stays frozen
+(D-008). A name is a label; a rate is a fact.
+
+**Decision — shared page header and buttons.**
+
+`PageHeader` and `components/common/Button.tsx` replace the per-page
+duplicated heading/action markup and the repeated Tailwind class strings.
+`components/ui/*` is left untouched: those shadcn files import `cn` from an
+unrelated npm package and are imported by nothing.
+
+**Build note:**
+`tsconfig.app.json` was missing the `@/*` path alias — referenced projects do
+not inherit `paths` from the root config, so `tsc -b` failed with 148 errors
+that had nothing to do with the code. Adding `paths` (without the deprecated
+`baseUrl`, which TS 6 rejects) reduced that to 8 genuine ones, all fixed.
+`npm run build` now passes.
+
+**Verified in a browser** (Playwright against the dev server, seeded data):
+all five screens render column headers, 25 rows/page, muted 12px uppercase
+headers in a 1px rounded card; search narrows 25 → 1; pagination advances;
+row click opens the detail route; `/deliveries?unvalued=1` pre-checks the
+pending-valuation filter; a 390px viewport shows only Farmer + Status; zero
+console errors.
+
+**Consequences:**
+- A new list screen is a column array, not a layout.
+- List and detail screens agree on names because both come from the API.
+- Sorting is visibly absent rather than subtly wrong.
+
+**Reversal triggers:**
+- If the API gains server-side sorting/filtering, adopt `@tanstack/react-table`
+  and move the column definitions onto `ColumnDef` — pages keep their shape.
+- If a table needs bulk selection, it needs a bulk endpoint first; we have none.
+
+## D-028 — Phase 1 hardening: truthful health, constant-cost lists, indexes
+
+**Date:** 2026-10-20
+**Status:** Accepted
+
+**Context:**
+Before adding features we audited the backend for things that are wrong
+rather than missing. Four were worth fixing immediately: health checks that
+report success while a dependency is down, a list endpoint whose query count
+grew with the page size, list queries that could not use any index, and a
+set of configuration/code smells that make the system harder to reason
+about than it needs to be.
+
+**Decision — health tells the truth, and does not leak.**
+
+`/health` stays a liveness probe (200 while the process serves).
+`/health/db` and `/health/redis` are readiness probes and return **503** when
+the dependency is unreachable. Previously they returned 200 with
+`{"status":"error"}` in the body, which every proxy and uptime monitor
+ignores.
+
+The response body never contains the driver exception: it can carry the
+DSN, host and credentials. The detail is logged server-side instead.
+
+**Decision — list cost is a test, not a hope.**
+
+The payments list ran two queries per row (allocations + their sum), so a
+100-row page issued 201 statements. `allocation_state_for_payments` fetches
+the page's allocation rows once and derives both facts from them.
+
+`test_payments_list.py` counts statements for `limit=1` and `limit=3` and
+asserts they are equal. Timing tests are flaky in CI and a passing response
+body says nothing about query count; the statement count is the invariant
+that matters.
+
+The redundant `payment_service.unallocated_amount` was deleted: two
+implementations of one number is how they drift.
+
+**Decision — one index migration for list ordering and search.**
+
+Migration `e52b47e5ff15` adds:
+
+| Index | Serves |
+|---|---|
+| `deliveries (delivered_at, id)` | delivery list, newest first |
+| `payments (paid_at, id)` | payment list, newest first |
+| `notifications (created_at)` | notification list |
+| `farmers (created_at)` | farmer list, newest first |
+| `gin lower(first_name) gin_trgm_ops` | farmer search |
+| `gin lower(last_name) gin_trgm_ops` | farmer search |
+| `gin phone gin_trgm_ops` | farmer search |
+
+`id` is part of the two event indexes because those lists sort by
+`(timestamp DESC, id DESC)`; without it Postgres does an incremental sort
+inside every equal-timestamp group, which is the wrong shape when a clerk
+bulk-enters rows.
+
+Search is `lower(col) LIKE '%q%'`. No btree can serve a leading wildcard,
+so it was a sequential scan regardless of what we added; `pg_trgm`'s GIN
+operator class is the index that actually applies. The extension is created
+at the top of `upgrade()` — the same prerequisite class as `btree_gist` in
+D-007 and D-013's failure mode 2.
+
+Verified with `EXPLAIN` on the live database (`enable_seqscan = off`, so
+the planner must choose an index): delivery and payment lists are now
+**Index Only Scan Backward** with no sort node, notifications and farmers
+are index scans, and farmer search is a `BitmapOr` over the three trigram
+indexes. At 154 seed rows the planner still prefers a sequential scan for
+the small tables — expected, and the reason the check disables it.
+
+**Decision — configuration is configuration.**
+
+CORS origins moved from a hardcoded list in `main.py` to `CORS_ORIGINS`, so
+a new frontend origin is an env change. `SECRET_KEY` was removed as dead
+config (see the amendment in D-012). Also fixed: a duplicated import in
+`ledger.py` and an `__import__("datetime")` expression in the statement
+router.
+
+**Verification:**
+- 27 backend tests pass (4 concurrency tests still deselected).
+- Health: `GET /health/db` against an unreachable database returns
+  `503 {"status":"error","database":"unreachable"}` while `/health`
+  returns 200; the credentials in the failing DSN appear nowhere in the
+  response or the log.
+- Migration applies, reverses and re-applies cleanly.
+- `EXPLAIN` output recorded above.
+
+**Consequences:**
+- A load balancer can now act on the readiness answer.
+- Payments page cost is flat: 4 statements for 1 row or 100.
+- Search stays index-backed as long as the predicate keeps the same
+  expressions; changing it means changing the index in the same commit.
+
+**Reversal triggers:**
+- If readiness probing on every health check becomes noisy, split it into a
+  cached check with a short TTL — but the 503 must stay.
+- If a table gains server-side sorting on arbitrary columns, index strategy
+  moves to per-endpoint analysis rather than list ordering.
+
+## D-029 — Phase 2: request ids, structured logs, and an honest 500
+
+**Date:** 2026-10-20
+**Status:** Accepted
+
+**Context:**
+Phase 1 made the failure *paths* correct. Phase 2 makes them **legible**. An
+unhandled error used to produce a bare `Internal Server Error` with no body:
+a clerk reporting it had nothing to quote, and the operator had to correlate
+by timestamp against interleaved uvicorn lines.
+
+**Decision — one id per request, in a contextvar.**
+
+`RequestContextMiddleware` generates a UUID (or echoes a client's
+`X-Request-ID` when it is 1–128 chars of `[A-Za-z0-9._:-]`) and stores it in a
+`ContextVar`. Every log call in the request — router, service, library — is
+tagged without threading a parameter through signatures.
+
+A caller-supplied id is only echoed when it passes the charset check. An
+unvalidated value would be a log-injection and header-injection vector;
+replacing it with a fresh id is the safe failure mode.
+
+The id is returned on **every** response, not just errors, and is listed in
+CORS `expose_headers` so the browser can read it.
+
+**Decision — one JSON object per line.**
+
+The access log line carries `method`, `path`, `status`, `duration_ms` and
+`request_id`. Requests at or over `SLOW_REQUEST_MS` (default 500 ms) log at
+WARNING, so slow endpoints surface without a separate metric pipeline.
+
+Hand-rolled formatter (`app/core/logging.py`, ~60 lines) rather than adding
+`structlog`/`python-json-logger`: the requirement is one shape, and a
+dependency that owns the logging config is harder to keep out of pytest's
+capture. `LOG_JSON=false` switches to plain lines for local work.
+
+The handler is added to the root logger, never replacing existing handlers —
+clobbering them silently disables pytest capture and any host's logging.
+
+**Decision — a 500 is JSON, and the traceback stays server-side.**
+
+Unhandled exceptions return:
+
+    {"detail": "Internal server error", "request_id": "<id>"}
+
+with the same id in the `X-Request-ID` header. The traceback is logged with
+the id and never sent to the client — it is the difference between "a clerk
+can report this" and "a clerk can exfiltrate the internals".
+
+The middleware catches first; an `Exception` handler is registered as a
+backstop for failures raised above it (or by middleware added later).
+Middleware order matters here and is documented at the call site: CORS is
+added **after** the request context so it ends up outermost, otherwise a 500
+would reach the browser without CORS headers and the frontend would show a
+network error instead of the message.
+
+**Decision — timeouts and fail-fast configuration.**
+
+- `statement_timeout` (default 5000 ms) is set per connection via the
+  driver, so Postgres enforces it on any statement including lock waits. A
+  stuck query cannot hold a pool slot indefinitely.
+- Pool `size` / `max_overflow` / `timeout` / `recycle` are settings, not
+  defaults buried in a constructor.
+- Configuration is validated when `Settings` is constructed: JWT key shorter
+  than 32 characters, a non-PostgreSQL `DATABASE_URL`, an unknown
+  `LOG_LEVEL`, or an empty CORS list now stop the process from booting. A
+  misconfigured deployment fails at start, not at 14:02 under load.
+
+**Rejected:** OpenTelemetry tracing. Request ids plus durations answer the
+questions we actually have at this stage; distributed tracing without
+multiple services is ceremony. Revisit when a worker and the API need a
+shared trace.
+
+**Verified:**
+- 33 tests pass (6 new in `test_observability.py`).
+- Live: a response with no id gets a generated one; `X-Request-ID:
+  trace-live-1` is echoed; the access line is one JSON object containing the
+  id, method, path, status and duration.
+- Live 500 (valid token, unreachable database): body is
+  `{"detail":"Internal server error","request_id":"trace-live-500"}`, the
+  header is present, the response contains no traceback, and the server log
+  line for the same id carries the full `exc_info`.
+- `SHOW statement_timeout` on an application connection returns `5s`.
+- Boot refuses on a short `JWT_SECRET_KEY` and on a `mysql://` URL; valid
+  config still imports cleanly.
+
+**Consequences:**
+- Every support report can be tied to one log line.
+- Slow endpoints are visible in the log stream without new infrastructure.
+- Configuration errors surface at deploy time.
+
+**Reversal triggers:**
+- If logs become a cost problem, sample successful requests (never errors).
+- If a second service appears, the request id stays the correlation key and
+  the id becomes a W3C `traceparent`.
+- If structured logs need to be queried rather than shipped, that is a
+  logging-backend decision, not an application one.
+
+## D-030 — Phase 3: auth is a session system, not just a token
+
+**Date:** 2026-10-20
+**Status:** Accepted
+
+**Context:**
+Phase 1–2 left three holes that matter the moment this carries real
+cooperative money:
+
+1. **No cost to guessing.** `/auth/login` verified Argon2 hashes as fast as a
+   client could ask. A stolen email plus a common password was a matter of
+   time, not of luck.
+2. **Logout was client-side theatre.** The frontend deleted its copy of the
+   JWT; the token itself stayed valid for its full 12 hours. Anyone holding a
+   copy — a shared laptop, a proxy log, an old device — kept access after the
+   user believed they had signed out.
+3. **No way to change a password**, and therefore no way to respond to a
+   suspected compromise.
+
+**Decision — throttle per account, and deliberately not per client IP.**
+
+`LOGIN_MAX_ATTEMPTS` (5) failures inside `LOGIN_WINDOW_SECONDS` (15 min) lock
+the email for `LOGIN_LOCKOUT_SECONDS` (15 min). Each further lockout for the
+same account doubles, capped at 24 h, so a sustained attacker's cost grows
+while a clerk who fat-fingered five times waits one window.
+
+The obvious implementation — count failures per `request.client.host` — is
+wrong for this deployment and we rejected it after writing it:
+
+- Behind any load balancer `request.client.host` is the *balancer*, so five
+  bad passwords from one person lock out the whole cooperative.
+- Even with no proxy, a rural office or cybercafé shares one NAT address. One
+  mistyping user must not stop their colleagues from working.
+
+Credential spraying (one password, many accounts) is real but is the wrong
+shape for this layer: it needs true client addresses and volumetric limits,
+which belong at the reverse proxy / WAF. This table protects *an account from
+being ground down*, which is the attack we can see and bound here. The
+trade-off is documented rather than pretended away.
+
+**Decision — the lock is checked before the password, and says so.**
+
+The attempt that crosses the threshold answers `429` with `Retry-After`
+instead of `401`, and later attempts are refused without verifying the
+credential — so the correct password does not slip through a locked account.
+`429` is used rather than `401` because the caller is not being told their
+password is wrong; they are being told to stop.
+
+Identifiers are SHA-256 hashed into the Redis keys. A Redis dump should not be
+a list of staff email addresses, and an email containing `:` cannot forge a key
+shape.
+
+**Fail open, loudly.** If Redis is unreachable the attempt is allowed and a
+warning is logged. Locking every user out of the system because the throttling
+store is down is worse than briefly losing throttling — and an auth outage is
+a bigger prize than a slower brute force.
+
+**Decision — logout revokes one token; password change revokes all of them.**
+
+Two mechanisms, because they answer different questions:
+
+- Every JWT carries a `jti`. `POST /auth/logout` writes that `jti` to a Redis
+  denylist with a TTL equal to the token's remaining lifetime, so the entry
+  expires exactly when the token would have. Other sessions of the same user
+  stay valid — that is what "sign out this device" should mean.
+- `users.token_version` (new column, default 0) is baked into the token as
+  `ver`. `get_current_user` compares it to the row on every request, and a
+  password change increments it. Every token minted before the change dies at
+  once, including the one that made the request. Tokens issued before this
+  migration have no `ver` and read as 0, so they survive until they expire
+  rather than logging everyone out on deploy.
+
+A denylist that is checked on every request is a cache lookup on the hot
+path; at our scale that is cheaper than the alternative (database-backed
+sessions) and it keeps the API stateless apart from one Redis key. Missing
+`jti` (a malformed or hand-made token) is treated as not revoked — signature
+verification already rejected anything we did not mint.
+
+The two checks live in one helper (`deps.assert_token_current`) because
+`/auth/register` carries its own guard: it must accept *no* token when the
+users table is empty (bootstrap), so it cannot simply depend on
+`get_current_user`. Duplicating the logic there would have re-opened the hole
+this phase closes — a revoked admin token could still create users. It now
+calls the same helper, and a test pins it.
+
+**Decision — passwords have a floor (10), not a personality.**
+
+`MIN_PASSWORD_LENGTH = 10`, shared by registration and password change so "a
+valid password" means one thing everywhere. No complexity rules: they push
+people toward `Password1!` and the predictable mutations around it. Argon2id
+at 64 MB / t=2 is what makes guessing expensive. Reusing the current password
+is rejected (422), because a "change" that changes nothing is not a change.
+
+**Decision — security headers on every response.**
+
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`.
+`Strict-Transport-Security` is only sent over HTTPS — asserting it on a plain
+HTTP dev server teaches browsers to remember a promise the server cannot keep.
+
+**Bug found while testing this (and fixed at the cause):**
+
+The new password-change test failed with a row that vanished mid-request. The
+cause was not auth: `write_transaction()` closed the caller's open transaction
+with a **rollback**. In tests, fixtures flush their rows into the surrounding
+savepoint, so that rollback deleted them; an update-only service then updated
+zero rows and the data disappeared. Delivery and payment tests only passed
+because their services flush *new* objects afterwards, which re-inserted the
+fixtures by accident. `write_transaction()` now **commits** the caller's work
+before opening its own transaction — a rollback there was silently discarding
+the caller's writes in production too, which is the worse of the two failures.
+Pinned by `app/tests/test_transaction.py`.
+
+**Verified:**
+- 53 tests pass, including the 4 money-concurrency tests that had never been
+  run (`pytest app/tests`, exit 0).
+- Migration `3f4dcebc9d6d_add_user_token_version` applies cleanly to head.
+- `tsc -b`, `oxlint` (0 errors) and `npm run build` clean; the new `/account`
+  screen and the `429` path were built, not just written.
+
+**Consequences:**
+- A locked account cannot be unlocked by the user; an admin must wait out the
+  window or the operator must clear the key. At 15 minutes that is acceptable.
+- Redis is now on the login path (fail-open) and on every authenticated
+  request (denylist). The `/health/redis` endpoint already reports it.
+- The client must treat a successful password change as a sign-out. It does:
+  `/account` redirects to `/login?changed=1` with a message.
+
+**Reversal triggers:**
+- If spraying becomes visible in the logs, add IP/ASN limiting at the proxy —
+  not in the app, where the address is the balancer's.
+- If Redis latency shows up in authenticated request p99, cache the denylist
+  check per user per request or move revocation into the `ver` claim alone.
+- If we add refresh tokens, `jti` revocation becomes the refresh-token store's
+  job and the denylist shrinks to the access-token lifetime (minutes).

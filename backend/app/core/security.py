@@ -14,7 +14,9 @@ Design notes:
   and role. Role is informational for the frontend; it is never trusted
   for authorization because it can be stale.
 """
-from datetime import datetime, timedelta, timezone
+
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
@@ -22,14 +24,13 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 
-
 # Argon2id is the current OWASP recommendation. `deprecated="auto"` lets
 # passlib transparently upgrade hashes when we change parameters later.
 _pwd_context = CryptContext(
     schemes=["argon2"],
     deprecated="auto",
     argon2__time_cost=2,
-    argon2__memory_cost=65536,   # 64 MB
+    argon2__memory_cost=65536,  # 64 MB
     argon2__parallelism=2,
 )
 
@@ -48,6 +49,7 @@ def create_access_token(
     subject: str,
     role: str | None = None,
     expires_delta: timedelta | None = None,
+    token_version: int = 0,
 ) -> str:
     """
     Create a signed JWT.
@@ -55,8 +57,13 @@ def create_access_token(
     subject: the user id (as a string).
     role: optional, included for the frontend's convenience only.
     expires_delta: override the default lifetime (e.g. for tests).
+    token_version: the user's `token_version` at issue time. Authorization
+        rejects the token if the row has moved on (D-030).
+
+    `jti` is unique per token so a single token can be revoked on logout
+    without invalidating the user's other sessions.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + (
         expires_delta
         if expires_delta is not None
@@ -67,6 +74,8 @@ def create_access_token(
         "sub": subject,
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
+        "jti": uuid.uuid4().hex,
+        "ver": token_version,
     }
     if role is not None:
         payload["role"] = role

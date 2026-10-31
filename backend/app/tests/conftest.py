@@ -13,11 +13,11 @@ Two isolation strategies coexist here:
   correctness requires real database state. Cleanup is the test's
   responsibility; we provide `cleanup_farmer` as a helper.
 """
-import contextlib
+
 import uuid
-from datetime import date, datetime, timezone
+from collections.abc import Iterator
+from datetime import date
 from decimal import Decimal
-from typing import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,16 +29,15 @@ from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models.delivery import Delivery
 from app.models.farmer import Farmer, FarmerStatus
 from app.models.payment import Payment, PaymentAllocation  # noqa: F401
 from app.models.produce import ProduceLine, Rate
 from app.models.user import User, UserRole
 
-
 # ---------------------------------------------------------------------------
 # Engine + schema (session scope)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def test_engine():
@@ -68,6 +67,7 @@ def test_session_factory(test_engine):
 # ---------------------------------------------------------------------------
 # Ordinary tests: single rolled-back transaction
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def db(test_engine) -> Iterator[Session]:
@@ -99,6 +99,7 @@ def db(test_engine) -> Iterator[Session]:
 # HTTP client (ordinary tests)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def client(db: Session):
     """
@@ -113,6 +114,7 @@ def client(db: Session):
     the fixtures use, then drop the override afterwards so it cannot leak
     into other tests.
     """
+
     def _override_get_db():
         yield db
 
@@ -127,6 +129,7 @@ def client(db: Session):
 # ---------------------------------------------------------------------------
 # Concurrency tests: independent sessions per thread
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def db_factory(test_engine):
@@ -144,8 +147,10 @@ def db_factory(test_engine):
         expire_on_commit=False,
         autoflush=False,
     )
+
     def _make() -> Session:
         return SessionLocal()
+
     return _make
 
 
@@ -169,15 +174,27 @@ def cleanup_farmer(db_factory):
     try:
         for fid in created_ids:
             # Order matters: allocations reference payments and deliveries.
-            s.execute(text(
-                "DELETE FROM payment_allocations WHERE payment_id IN "
-                "(SELECT id FROM payments WHERE farmer_id = :fid) "
-                "OR delivery_id IN "
-                "(SELECT id FROM deliveries WHERE farmer_id = :fid)"
-            ), {"fid": str(fid)})
-            s.execute(text("DELETE FROM payments WHERE farmer_id = :fid"), {"fid": str(fid)})
-            s.execute(text("DELETE FROM deliveries WHERE farmer_id = :fid"), {"fid": str(fid)})
-            s.execute(text("DELETE FROM farmers WHERE id = :fid"), {"fid": str(fid)})
+            s.execute(
+                text(
+                    "DELETE FROM payment_allocations WHERE payment_id IN "
+                    "(SELECT id FROM payments WHERE farmer_id = :fid) "
+                    "OR delivery_id IN "
+                    "(SELECT id FROM deliveries WHERE farmer_id = :fid)"
+                ),
+                {"fid": str(fid)},
+            )
+            s.execute(
+                text("DELETE FROM payments WHERE farmer_id = :fid"),
+                {"fid": str(fid)},
+            )
+            s.execute(
+                text("DELETE FROM deliveries WHERE farmer_id = :fid"),
+                {"fid": str(fid)},
+            )
+            s.execute(
+                text("DELETE FROM farmers WHERE id = :fid"),
+                {"fid": str(fid)},
+            )
         s.commit()
     finally:
         s.close()
@@ -186,6 +203,7 @@ def cleanup_farmer(db_factory):
 # ---------------------------------------------------------------------------
 # Seeded entities (ordinary tests)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def admin(db: Session) -> User:

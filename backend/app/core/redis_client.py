@@ -7,10 +7,10 @@ dispatch pipeline (queue + retry state), NOT for durable data — see D-024.
 We expose the raw client as `redis_client` and provide a healthcheck
 helper for the `/health/redis` endpoint.
 """
+
 import redis
 
 from app.core.config import settings
-
 
 # decode_responses=True so values come back as Python str, not bytes.
 # Slightly slower, much friendlier.

@@ -17,17 +17,17 @@ If we narrowed first and any legacy data had a non-conforming role value,
 the ALTER would succeed but the CHECK would then fail. Doing the CHECK first
 surfaces any such data problem before we touch the column.
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '36559c53c0de'
-down_revision: Union[str, Sequence[str], None] = '5f7161fdad79'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+revision: str = "36559c53c0de"
+down_revision: str | Sequence[str] | None = "5f7161fdad79"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -40,7 +40,8 @@ def upgrade() -> None:
     )
     # 2. Then narrow the column — safe once roles are constrained.
     op.alter_column(
-        'users', 'role',
+        "users",
+        "role",
         existing_type=sa.VARCHAR(length=50),
         type_=sa.String(length=20),
         existing_nullable=False,
@@ -51,7 +52,8 @@ def downgrade() -> None:
     """Downgrade schema."""
     # Reverse order: widen first, then drop the constraint.
     op.alter_column(
-        'users', 'role',
+        "users",
+        "role",
         existing_type=sa.String(length=20),
         type_=sa.VARCHAR(length=50),
         existing_nullable=False,

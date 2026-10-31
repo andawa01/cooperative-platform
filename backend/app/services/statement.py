@@ -1,6 +1,7 @@
 """
-Statement service. See module docstring... 
+Statement service. See module docstring...
 """
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -18,12 +19,12 @@ from app.schemas.statement import (
 )
 from app.services import ledger as ledger_service
 
-
 # ---------------------------------------------------------------------------
 # Event assembly
 # ---------------------------------------------------------------------------
 
-def _delivery_description(delivery: Delivery, line: ProduceLine | None) -> str:
+
+def describe_delivery(delivery: Delivery, line: ProduceLine | None) -> str:
     if delivery.reversal_of_id is not None:
         reason = (delivery.notes or "").removeprefix("[reversal] ").strip()
         base = "Delivery reversal"
@@ -38,7 +39,7 @@ def _delivery_description(delivery: Delivery, line: ProduceLine | None) -> str:
     )
 
 
-def _payment_description(payment: Payment) -> str:
+def describe_payment(payment: Payment) -> str:
     if payment.reversal_of_id is not None:
         reason = (payment.notes or "").removeprefix("[reversal] ").strip()
         base = "Payment reversal"
@@ -93,6 +94,7 @@ def _compute_deltas(
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
+
 
 def build_statement(
     db: Session,
@@ -195,7 +197,7 @@ def build_statement(
         if kind == "delivery":
             d: Delivery = obj
             line = lines.get(d.produce_line_id)
-            description = _delivery_description(d, line)
+            description = describe_delivery(d, line)
             if d.reversal_of_id is None:
                 amount = (d.rate_snapshot or Decimal("0")) * d.quantity
                 debt_delta = amount
@@ -214,7 +216,9 @@ def build_statement(
             entries.append(
                 StatementEntry(
                     date=dt,
-                    type="delivery" if d.reversal_of_id is None else "delivery_reversal",
+                    type=(
+                        "delivery" if d.reversal_of_id is None else "delivery_reversal"
+                    ),
                     amount=amount,
                     description=description,
                     delivery_id=d.id,
@@ -225,7 +229,7 @@ def build_statement(
             )
         else:
             p: Payment = obj
-            description = _payment_description(p)
+            description = describe_payment(p)
             net_alloc = allocations_by_payment.get(p.id, Decimal("0"))
             if p.reversal_of_id is None:
                 # Normal payment: credit += (amount - net_alloc), debt -= net_alloc

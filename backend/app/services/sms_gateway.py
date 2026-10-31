@@ -15,13 +15,13 @@ The brief explicitly says real gateway integration is out of scope. What
 matters is that the *boundary* is honest — everything above this module
 behaves as if a real gateway were behind it.
 """
+
 import logging
 import random
 import time
 from dataclasses import dataclass
 
 from app.core.config import settings
-
 
 log = logging.getLogger(__name__)
 

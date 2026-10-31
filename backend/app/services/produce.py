@@ -20,8 +20,9 @@ The exclusion constraint is the DB-level safety net. If our logic has a bug
 or another code path writes directly, the constraint rejects overlapping
 intervals.
 """
+
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -31,11 +32,12 @@ from app.models.delivery import Delivery
 from app.models.produce import ProduceLine, Rate
 from app.models.user import User
 from app.schemas.produce import ProduceLineCreate, ProduceLineUpdate, RateCreate
-
+from app.services import audit
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
 # ---------------------------------------------------------------------------
+
 
 class ProduceLineNotFound(Exception):
     pass
@@ -67,6 +69,7 @@ class ProduceLineInactive(Exception):
 # ---------------------------------------------------------------------------
 # Produce lines
 # ---------------------------------------------------------------------------
+
 
 def create_produce_line(
     db: Session, data: ProduceLineCreate, actor: User
@@ -147,9 +150,8 @@ def deactivate_produce_line(db: Session, line_id: uuid.UUID) -> ProduceLine:
 # Rates
 # ---------------------------------------------------------------------------
 
-def _get_current_open_rate(
-    db: Session, produce_line_id: uuid.UUID
-) -> Rate | None:
+
+def _get_current_open_rate(db: Session, produce_line_id: uuid.UUID) -> Rate | None:
     """Return the rate with no effective_to for this produce line, if any."""
     return db.scalar(
         select(Rate)
@@ -176,9 +178,7 @@ def create_rate(
     # for the same line, giving us a predictable error rather than a race
     # against the exclusion constraint.
     line = db.scalar(
-        select(ProduceLine)
-        .where(ProduceLine.id == produce_line_id)
-        .with_for_update()
+        select(ProduceLine).where(ProduceLine.id == produce_line_id).with_for_update()
     )
     if line is None:
         raise ProduceLineNotFound()
@@ -212,16 +212,53 @@ def create_rate(
 
     # Step 5: count affected deliveries — informational only. We do NOT
     # rewrite their snapshots. Any correction is a separate, audited action.
-    affected = db.scalar(
-        select(func.count())
-        .select_from(Delivery)
-        .where(Delivery.produce_line_id == produce_line_id)
-        .where(Delivery.delivered_at >= datetime.combine(
-            data.effective_from, datetime.min.time(), tzinfo=timezone.utc
-        ))
-        .where(Delivery.reversal_of_id.is_(None))
-        .where(Delivery.rate_snapshot != data.rate_per_unit)
-    ) or 0
+    affected = (
+        db.scalar(
+            select(func.count())
+            .select_from(Delivery)
+            .where(Delivery.produce_line_id == produce_line_id)
+            .where(
+                Delivery.delivered_at
+                >= datetime.combine(
+                    data.effective_from, datetime.min.time(), tzinfo=UTC
+                )
+            )
+            .where(Delivery.reversal_of_id.is_(None))
+            .where(Delivery.rate_snapshot != data.rate_per_unit)
+        )
+        or 0
+    )
+
+    db.flush()  # assigns new_rate.id, which the audit entry needs
+
+    # Pricing is money: recorded in the same transaction that closes the old
+    # rate and opens the new one, so the trail can never disagree with the
+    # rate table. The line the price applies to is in the payload, because
+    # `entity_id` identifies the rate row itself.
+    audit.record(
+        db,
+        actor_id=actor.id,
+        action="rate.create",
+        entity_type="rate",
+        entity_id=new_rate.id,
+        before=(
+            {
+                "rate_id": str(current.id),
+                "rate_per_unit": str(current.rate_per_unit),
+                "currency": current.currency,
+                "effective_from": current.effective_from.isoformat(),
+            }
+            if current is not None
+            else None
+        ),
+        after={
+            "produce_line_id": str(produce_line_id),
+            "rate_per_unit": str(data.rate_per_unit),
+            "currency": data.currency,
+            "effective_from": data.effective_from.isoformat(),
+            "affected_deliveries": int(affected),
+        },
+    )
 
     try:
         db.commit()
@@ -240,9 +277,7 @@ def create_rate(
     return new_rate, current, affected
 
 
-def list_rates(
-    db: Session, produce_line_id: uuid.UUID
-) -> list[Rate]:
+def list_rates(db: Session, produce_line_id: uuid.UUID) -> list[Rate]:
     """Return the full rate history for a produce line, newest first."""
     get_produce_line(db, produce_line_id)  # 404 if line doesn't exist
     return list(
@@ -254,9 +289,7 @@ def list_rates(
     )
 
 
-def get_rate_at(
-    db: Session, produce_line_id: uuid.UUID, on_date: date
-) -> Rate | None:
+def get_rate_at(db: Session, produce_line_id: uuid.UUID, on_date: date) -> Rate | None:
     """
     Return the rate in effect on a given date, or None if no rate covers it.
     Raises ProduceLineNotFound if the produce line doesn't exist.

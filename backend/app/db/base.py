@@ -12,6 +12,7 @@ Why UUID over integer?
 - Downside: slightly larger storage, slightly less human-readable in logs
 - For a system where money and identity are involved, this tradeoff is worth it.
 """
+
 import uuid
 from datetime import datetime
 
@@ -26,6 +27,7 @@ class BaseModel(Base):
     """
     Abstract base — not a table itself. Concrete models inherit from this.
     """
+
     __abstract__ = True
 
     id: Mapped[uuid.UUID] = mapped_column(

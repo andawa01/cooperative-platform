@@ -11,6 +11,13 @@ env/
 .mypy_cache/
 *.egg-info/
 
+# Test / coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.ruff_cache/
+
 # Node
 node_modules/
 dist/

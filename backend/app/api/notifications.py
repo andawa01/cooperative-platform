@@ -8,6 +8,7 @@ Permissions (see D-015):
 The response merges the durable record (Postgres) with the current dispatch
 state (Redis) into one coherent object.
 """
+
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -22,7 +23,6 @@ from app.schemas.notification import (
 )
 from app.services import notifications as notif_service
 from app.services.notifications import NotificationNotFound
-
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -62,7 +62,9 @@ def list_notifications(
     )
     return NotificationListResponse(
         items=[_serialize(db, n) for n in items],
-        total=total, limit=limit, offset=offset,
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 

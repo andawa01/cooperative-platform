@@ -9,8 +9,10 @@ Conventions:
   wrapped.
 - The service normalizes `phone` (E.164) per DECISIONS.md D-016.
 """
+
 import re
 import uuid
+from datetime import UTC
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -19,11 +21,12 @@ from sqlalchemy.orm import Session
 from app.models.farmer import Farmer, FarmerStatus
 from app.models.user import User
 from app.schemas.farmer import FarmerCreate, FarmerUpdate
-
+from app.services import audit
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
 # ---------------------------------------------------------------------------
+
 
 class FarmerNotFound(Exception):
     """Raised when a farmer id does not exist."""
@@ -103,6 +106,7 @@ def normalize_phone(raw: str, country: str = "KE") -> str:
 # Create / read
 # ---------------------------------------------------------------------------
 
+
 def create_farmer(
     db: Session,
     data: FarmerCreate,
@@ -133,6 +137,21 @@ def create_farmer(
 
     db.add(farmer)
     try:
+        db.flush()  # assign the id the audit entry references
+        audit.record(
+            db,
+            actor_id=actor.id,
+            action="farmer.create",
+            entity_type="farmer",
+            entity_id=farmer.id,
+            after={
+                "first_name": farmer.first_name,
+                "last_name": farmer.last_name,
+                "phone": farmer.phone,
+                "national_id": farmer.national_id,
+                "status": farmer.status,
+            },
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -208,14 +227,19 @@ def list_farmers(
 # Update
 # ---------------------------------------------------------------------------
 
+
 def update_farmer(
     db: Session,
     farmer_id: uuid.UUID,
     data: FarmerUpdate,
+    actor: User,
 ) -> Farmer:
     """
     Apply a partial update. Only fields actually present in the request
     (via exclude_unset) are applied.
+
+    Records exactly the fields that changed — a PATCH that changes nothing
+    writes no audit row, because nothing happened.
     """
     farmer = get_farmer(db, farmer_id)
 
@@ -228,10 +252,28 @@ def update_farmer(
     if leaked:
         raise ValueError(f"fields not patchable via this method: {leaked}")
 
+    before: dict = {}
+    after: dict = {}
     for key, value in updates.items():
         if isinstance(value, str):
             value = value.strip() or None
+        previous = getattr(farmer, key)
+        if previous == value:
+            continue
+        before[key] = audit.snapshot(previous)
+        after[key] = audit.snapshot(value)
         setattr(farmer, key, value)
+
+    if before:
+        audit.record(
+            db,
+            actor_id=actor.id,
+            action="farmer.update",
+            entity_type="farmer",
+            entity_id=farmer.id,
+            before=before,
+            after=after,
+        )
 
     try:
         db.commit()
@@ -249,6 +291,7 @@ def update_farmer(
 # Status transitions
 # ---------------------------------------------------------------------------
 
+
 def verify_farmer(
     db: Session,
     farmer_id: uuid.UUID,
@@ -258,7 +301,7 @@ def verify_farmer(
     Mark a farmer as verified. Only valid from PENDING_VERIFICATION.
     Idempotency: verifying an already-verified farmer is a no-op, not an error.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     farmer = get_farmer(db, farmer_id)
 
@@ -266,10 +309,24 @@ def verify_farmer(
         raise FarmerNotMergeable("cannot verify a merged farmer")
 
     if farmer.verified_at is None:
-        farmer.verified_at = datetime.now(timezone.utc)
+        previous_status = farmer.status
+        farmer.verified_at = datetime.now(UTC)
         farmer.verified_by_id = actor.id
         if farmer.status == FarmerStatus.PENDING_VERIFICATION.value:
             farmer.status = FarmerStatus.ACTIVE.value
+        audit.record(
+            db,
+            actor_id=actor.id,
+            action="farmer.verify",
+            entity_type="farmer",
+            entity_id=farmer.id,
+            before={"status": previous_status, "verified_at": None},
+            after={
+                "status": farmer.status,
+                "verified_at": farmer.verified_at.isoformat(),
+                "verified_by_id": str(actor.id),
+            },
+        )
         db.commit()
         db.refresh(farmer)
 
@@ -279,6 +336,7 @@ def verify_farmer(
 def archive_farmer(
     db: Session,
     farmer_id: uuid.UUID,
+    actor: User,
     reason: str | None = None,
 ) -> Farmer:
     """
@@ -294,10 +352,20 @@ def archive_farmer(
         raise FarmerNotMergeable("cannot archive a merged farmer")
 
     if farmer.status != FarmerStatus.ARCHIVED.value:
+        previous_status = farmer.status
         farmer.status = FarmerStatus.ARCHIVED.value
         if reason:
             existing = farmer.notes or ""
             farmer.notes = f"{existing}\n[archived] {reason}".strip()
+        audit.record(
+            db,
+            actor_id=actor.id,
+            action="farmer.archive",
+            entity_type="farmer",
+            entity_id=farmer.id,
+            before={"status": previous_status},
+            after={"status": farmer.status, "reason": reason},
+        )
         db.commit()
         db.refresh(farmer)
 

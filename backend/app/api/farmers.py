@@ -9,6 +9,7 @@ Permissions:
 - update: admin only
 - verify, archive: admin only
 """
+
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -32,7 +33,6 @@ from app.services.farmer import (
     InvalidPhoneFormat,
 )
 
-
 router = APIRouter(prefix="/farmers", tags=["farmers"])
 
 
@@ -40,21 +40,25 @@ router = APIRouter(prefix="/farmers", tags=["farmers"])
 # Exception → HTTP mapping
 # ---------------------------------------------------------------------------
 
+
 def _translate(exc: Exception) -> HTTPException:
     if isinstance(exc, FarmerNotFound):
         return HTTPException(status.HTTP_404_NOT_FOUND, "Farmer not found")
     if isinstance(exc, FarmerPhoneTaken):
         return HTTPException(status.HTTP_409_CONFLICT, "Phone is already registered")
     if isinstance(exc, FarmerNationalIdTaken):
-        return HTTPException(status.HTTP_409_CONFLICT, "National ID is already registered")
+        return HTTPException(
+            status.HTTP_409_CONFLICT, "National ID is already registered"
+        )
     if isinstance(exc, InvalidPhoneFormat):
-        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     return HTTPException(status.HTTP_400_BAD_REQUEST, "Bad request")
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "",
@@ -117,11 +121,11 @@ def update_farmer(
     farmer_id: uuid.UUID,
     payload: FarmerUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role(UserRole.ADMIN)),
+    actor: User = Depends(require_role(UserRole.ADMIN)),
 ):
     """Partial update. Admin only. Phone and status are not patchable here."""
     try:
-        return farmer_service.update_farmer(db, farmer_id, payload)
+        return farmer_service.update_farmer(db, farmer_id, payload, actor)
     except FarmerNotFound as exc:
         raise _translate(exc)
     except FarmerNationalIdTaken as exc:
@@ -145,10 +149,10 @@ def verify_farmer(
 def archive_farmer(
     farmer_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role(UserRole.ADMIN)),
+    actor: User = Depends(require_role(UserRole.ADMIN)),
 ):
     """Archive a farmer. Admin only. Idempotent. No hard delete exists."""
     try:
-        return farmer_service.archive_farmer(db, farmer_id)
+        return farmer_service.archive_farmer(db, farmer_id, actor)
     except FarmerNotFound as exc:
         raise _translate(exc)

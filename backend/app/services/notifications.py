@@ -17,14 +17,15 @@ The enqueue functions are best-effort: if Redis is unreachable, we still
 create the Postgres record (so the fact of "we intended to notify" is
 preserved) and log the failure. An admin can retry the dispatch later.
 """
+
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+import redis
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-import redis
 from app.core.redis_client import redis_client
 from app.models.delivery import Delivery
 from app.models.farmer import Farmer
@@ -35,7 +36,6 @@ from app.models.notification import (
     RelatedEntityType,
 )
 from app.models.payment import Payment
-
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ class NotificationNotFound(Exception):
 # ---------------------------------------------------------------------------
 # Templates
 # ---------------------------------------------------------------------------
+
 
 def _render_delivery_recorded(delivery: Delivery, farmer: Farmer) -> str:
     """
@@ -85,6 +86,7 @@ def _render_payment_recorded(payment: Payment, farmer: Farmer) -> str:
 # ---------------------------------------------------------------------------
 # Redis helpers
 # ---------------------------------------------------------------------------
+
 
 def _state_key(notification_id: uuid.UUID) -> str:
     return f"{STATE_KEY_PREFIX}{notification_id}"
@@ -151,20 +153,20 @@ def _enqueue(notification_id: uuid.UUID, delay_seconds: int = 0) -> bool:
     """
     try:
         if delay_seconds > 0:
-            score = datetime.now(timezone.utc).timestamp() + delay_seconds
+            score = datetime.now(UTC).timestamp() + delay_seconds
             redis_client.zadd(RETRY_KEY, {str(notification_id): score})
         else:
             redis_client.lpush(QUEUE_KEY, str(notification_id))
         return True
     except redis.RedisError as exc:
-        log.error("redis enqueue failed for notification %s: %s",
-                  notification_id, exc)
+        log.error("redis enqueue failed for notification %s: %s", notification_id, exc)
         return False
 
 
 # ---------------------------------------------------------------------------
 # Public: enqueue from delivery / payment recording
 # ---------------------------------------------------------------------------
+
 
 def _create_notification_row(
     db: Session,
@@ -191,9 +193,7 @@ def _create_notification_row(
     return n
 
 
-def enqueue_delivery_recorded(
-    db: Session, delivery: Delivery
-) -> Notification | None:
+def enqueue_delivery_recorded(db: Session, delivery: Delivery) -> Notification | None:
     """
     Called after a delivery is recorded. Creates the durable Notification
     record and pushes it onto the Redis queue. Best-effort: if Redis is
@@ -217,7 +217,7 @@ def enqueue_delivery_recorded(
     enqueued = _enqueue(n.id)
     _write_state(
         n.id,
-        status="queued" if enqueued else "queued_redis_unreachable",
+        status="queued",
         attempts=0,
         last_error=None if enqueued else "redis unreachable",
         sent_at=None,
@@ -225,9 +225,7 @@ def enqueue_delivery_recorded(
     return n
 
 
-def enqueue_payment_recorded(
-    db: Session, payment: Payment
-) -> Notification | None:
+def enqueue_payment_recorded(db: Session, payment: Payment) -> Notification | None:
     farmer = db.get(Farmer, payment.farmer_id)
     if farmer is None:
         return None
@@ -246,7 +244,7 @@ def enqueue_payment_recorded(
     enqueued = _enqueue(n.id)
     _write_state(
         n.id,
-        status="queued" if enqueued else "queued_redis_unreachable",
+        status="queued",
         attempts=0,
         last_error=None if enqueued else "redis unreachable",
         sent_at=None,
@@ -257,6 +255,7 @@ def enqueue_payment_recorded(
 # ---------------------------------------------------------------------------
 # Public: reads
 # ---------------------------------------------------------------------------
+
 
 def list_notifications(
     db: Session,
@@ -284,6 +283,7 @@ def get_notification(db: Session, notification_id: uuid.UUID) -> Notification:
 # ---------------------------------------------------------------------------
 # Public: retry (used by the API for admin recovery)
 # ---------------------------------------------------------------------------
+
 
 def retry_notification(db: Session, notification_id: uuid.UUID) -> Notification:
     """

@@ -19,6 +19,7 @@ Application-level invariants (cannot be DB-enforced):
 7. Merged farmers cannot receive new deliveries or payments
 8. Merge chains (A→B→C) must be resolved when reading history
 """
+
 import enum
 import uuid
 from datetime import date, datetime
@@ -43,6 +44,7 @@ class FarmerStatus(str, enum.Enum):
     Mirrors the CHECK constraint in the DB. Kept as str-enum so it serializes
     cleanly to JSON and can be compared to raw strings.
     """
+
     PENDING_VERIFICATION = "pending_verification"
     ACTIVE = "active"
     SUSPENDED = "suspended"
@@ -86,7 +88,7 @@ class Farmer(BaseModel):
         DateTime(timezone=True), nullable=True
     )
     verified_by_id: Mapped[uuid.UUID | None] = mapped_column(
-    ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
 
     # Self-referencing FK. When two farmer records turn out to be the same
@@ -114,38 +116,36 @@ class Farmer(BaseModel):
     __table_args__ = (
         UniqueConstraint("phone", name="uq_farmer_phone"),
         UniqueConstraint("national_id", name="uq_farmer_national_id"),
-
         # E.164: +, then 1-9 (no leading zero in country code), then 6-14 digits.
         CheckConstraint(
             r"phone ~ '^\+[1-9][0-9]{6,14}$'",
             name="ck_farmer_phone_e164",
         ),
-
         # A farmer cannot be merged into themselves.
         CheckConstraint(
             "merged_into_id IS NULL OR merged_into_id <> id",
             name="ck_farmer_no_self_merge",
         ),
-
         # status='merged' ⇔ merged_into_id IS NOT NULL (both directions).
         CheckConstraint(
             "(status = 'merged') = (merged_into_id IS NOT NULL)",
             name="ck_farmer_merge_consistency",
         ),
-
         # verified_at and verified_by_id set together or not at all.
         CheckConstraint(
             "(verified_at IS NULL) = (verified_by_id IS NULL)",
             name="ck_farmer_verification_consistency",
         ),
-
         # status must be one of the known values (mirrors FarmerStatus).
         CheckConstraint(
             "status IN (" + ", ".join(f"'{v}'" for v in FARMER_STATUS_VALUES) + ")",
             name="ck_farmer_status_valid",
         ),
-
         Index("ix_farmer_status", "status"),
+        # List screens sort by newest first; without this every page scan+sort.
+        # (Search indexes are trigram GINs, created in migration e52b47e5ff15
+        # because they are expression indexes Alembic cannot mirror here.)
+        Index("ix_farmer_created_at", "created_at"),
     )
 
     # --- Convenience ----------------------------------------------------

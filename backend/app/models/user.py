@@ -7,9 +7,10 @@ Two roles for MVP (see DECISIONS.md D-012):
 
 Farmers are NOT users of this system in MVP. See D-003 (Farmer != User).
 """
+
 import enum
 
-from sqlalchemy import Boolean, CheckConstraint, String
+from sqlalchemy import Boolean, CheckConstraint, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import BaseModel
@@ -39,6 +40,13 @@ class User(BaseModel):
         nullable=False,
         default=UserRole.CLERK.value,
         server_default=UserRole.CLERK.value,
+    )
+
+    # Bumped on password change. Tokens carry this value; a token whose `ver`
+    # no longer matches is rejected (D-030). It is the "sign out everywhere"
+    # primitive — no per-session table needed for MVP.
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
 
     __table_args__ = (

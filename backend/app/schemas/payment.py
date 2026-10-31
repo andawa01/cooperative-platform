@@ -8,6 +8,7 @@ The PaymentCreate schema accepts optional manual allocations. If omitted,
 the service falls back to FIFO allocation against the farmer's oldest
 outstanding deliveries.
 """
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -53,6 +54,8 @@ class AllocationResponse(BaseModel):
 class PaymentResponse(BaseModel):
     id: uuid.UUID
     farmer_id: uuid.UUID
+    # Resolved at read time so list screens do not have to join client-side.
+    farmer_name: str
     amount: Decimal
     currency: str
     method: PaymentMethod

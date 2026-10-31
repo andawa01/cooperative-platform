@@ -9,13 +9,13 @@ a single balance, matching the ledger model in D-019.
 The closing pair MUST equal what /farmers/{id}/balance returns when the
 statement covers through today. There is a pytest for exactly that.
 """
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel
-
 
 StatementEntryType = Literal[
     "delivery",
@@ -33,7 +33,7 @@ class StatementOpening(BaseModel):
 class StatementEntry(BaseModel):
     date: datetime
     type: StatementEntryType
-    amount: Decimal           # signed: + for credit-to-position, - for the inverse
+    amount: Decimal  # signed: + for credit-to-position, - for the inverse
     description: str
     # At most one of these is set, depending on the type.
     delivery_id: uuid.UUID | None = None

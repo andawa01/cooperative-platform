@@ -7,6 +7,7 @@ Delivery schemas.
 - DeliveryResponse: allowlist of what clients see.
 - BalanceResponse: the three-figure financial position.
 """
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -31,6 +32,7 @@ class DeliveryValueRequest(BaseModel):
     at the moment of valuation and snapshots it. If no rate exists even now,
     the operation fails.
     """
+
     pass  # no body needed; the service derives everything
 
 
@@ -42,6 +44,11 @@ class DeliveryResponse(BaseModel):
     id: uuid.UUID
     farmer_id: uuid.UUID
     produce_line_id: uuid.UUID
+    # Display names resolved at read time by the router. A delivery row only
+    # stores ids; every list screen needs to show whose delivery it is, and
+    # making the client join that would be an N+1 across the whole page.
+    farmer_name: str
+    produce_line_name: str
     quantity: Decimal
     delivered_at: datetime
     recorded_at: datetime

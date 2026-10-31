@@ -9,17 +9,17 @@ we're testing for.
 See D-010 for the design, D-019/D-020 for the service rules, and D-022
 for the concurrency test rationale.
 """
+
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select, text
 
 from app.core.security import hash_password
-from app.models.delivery import Delivery
 from app.models.farmer import Farmer, FarmerStatus
 from app.models.payment import Payment, PaymentAllocation
 from app.models.produce import ProduceLine, Rate
@@ -29,13 +29,13 @@ from app.schemas.payment import PaymentCreate
 from app.services import delivery as delivery_service
 from app.services import payment as payment_service
 
-
 pytestmark = pytest.mark.concurrency
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _seed(session):
     """Create a full graph: user, farmer, line, rate. Commit for real."""
@@ -86,7 +86,7 @@ def _record_delivery(session, farmer, line, admin, qty="100"):
             farmer_id=farmer.id,
             produce_line_id=line.id,
             quantity=Decimal(qty),
-            delivered_at=datetime(2025, 6, 15, 10, 0, tzinfo=timezone.utc),
+            delivered_at=datetime(2025, 6, 15, 10, 0, tzinfo=UTC),
         ),
         admin,
     )
@@ -95,6 +95,7 @@ def _record_delivery(session, farmer, line, admin, qty="100"):
 # ---------------------------------------------------------------------------
 # Test 1 — Concurrent payments cannot over-allocate the same delivery
 # ---------------------------------------------------------------------------
+
 
 def test_concurrent_payments_cannot_over_allocate(db_factory, cleanup_farmer):
     """
@@ -130,7 +131,7 @@ def test_concurrent_payments_cannot_over_allocate(db_factory, cleanup_farmer):
                         currency="KES",
                         method="cash",
                         reference=None,
-                        paid_at=datetime.now(timezone.utc),
+                        paid_at=datetime.now(UTC),
                         idempotency_key=key,
                     ),
                     admin,
@@ -151,9 +152,9 @@ def test_concurrent_payments_cannot_over_allocate(db_factory, cleanup_farmer):
     s = db_factory()
     try:
         allocations_total = s.scalar(
-            select(text("COALESCE(SUM(amount), 0)")).select_from(
-                PaymentAllocation
-            ).where(PaymentAllocation.delivery_id == d.id)
+            select(text("COALESCE(SUM(amount), 0)"))
+            .select_from(PaymentAllocation)
+            .where(PaymentAllocation.delivery_id == d.id)
         )
         assert Decimal(str(allocations_total)) <= Decimal("5000.0000"), (
             f"Over-allocated: {allocations_total}"
@@ -165,6 +166,7 @@ def test_concurrent_payments_cannot_over_allocate(db_factory, cleanup_farmer):
 # ---------------------------------------------------------------------------
 # Test 2 — Same idempotency key cannot create two payments
 # ---------------------------------------------------------------------------
+
 
 def test_concurrent_same_key_creates_one_payment(db_factory, cleanup_farmer):
     """
@@ -192,7 +194,7 @@ def test_concurrent_same_key_creates_one_payment(db_factory, cleanup_farmer):
         currency="KES",
         method="cash",
         reference=None,
-        paid_at=datetime.now(timezone.utc),
+        paid_at=datetime.now(UTC),
         idempotency_key=key,
     )
 
@@ -217,7 +219,8 @@ def test_concurrent_same_key_creates_one_payment(db_factory, cleanup_farmer):
     s = db_factory()
     try:
         count = s.scalar(
-            select(text("COUNT(*)")).select_from(Payment)
+            select(text("COUNT(*)"))
+            .select_from(Payment)
             .where(Payment.idempotency_key == key)
         )
         assert count == 1
@@ -228,6 +231,7 @@ def test_concurrent_same_key_creates_one_payment(db_factory, cleanup_farmer):
 # ---------------------------------------------------------------------------
 # Test 3 — Reversal restores debt and credit correctly
 # ---------------------------------------------------------------------------
+
 
 def test_reversal_restores_debt_and_credit(db_factory, cleanup_farmer):
     """
@@ -243,7 +247,7 @@ def test_reversal_restores_debt_and_credit(db_factory, cleanup_farmer):
     try:
         admin, farmer, line = _seed(s)
         cleanup_farmer(farmer.id)
-        d = _record_delivery(s, farmer, line, admin)  # 5,000
+        _record_delivery(s, farmer, line, admin)  # 5,000
 
         # Payment 4,000, FIFO-allocated to the delivery.
         p, _ = payment_service.record_payment(
@@ -254,13 +258,14 @@ def test_reversal_restores_debt_and_credit(db_factory, cleanup_farmer):
                 currency="KES",
                 method="cash",
                 reference=None,
-                paid_at=datetime.now(timezone.utc),
+                paid_at=datetime.now(UTC),
                 idempotency_key=f"rev-{uuid.uuid4()}",
             ),
             admin,
         )
 
         from app.services import ledger
+
         bal_before = ledger.compute_balance(s, farmer.id)
         assert bal_before.outstanding_debt == Decimal("1000.0000")
         assert bal_before.available_credit == Decimal("0.0000")
@@ -279,6 +284,7 @@ def test_reversal_restores_debt_and_credit(db_factory, cleanup_farmer):
 # ---------------------------------------------------------------------------
 # Test 4 — Concurrent reversal + payment serialize
 # ---------------------------------------------------------------------------
+
 
 def test_concurrent_delivery_reversal_and_payment(db_factory, cleanup_farmer):
     """
@@ -324,7 +330,7 @@ def test_concurrent_delivery_reversal_and_payment(db_factory, cleanup_farmer):
                         currency="KES",
                         method="cash",
                         reference=None,
-                        paid_at=datetime.now(timezone.utc),
+                        paid_at=datetime.now(UTC),
                         idempotency_key=f"conc-4-{uuid.uuid4()}",
                     ),
                     admin,
@@ -347,6 +353,7 @@ def test_concurrent_delivery_reversal_and_payment(db_factory, cleanup_farmer):
     s = db_factory()
     try:
         from app.services import ledger
+
         bal = ledger.compute_balance(s, farmer.id)
         # Debt must be >= 0 (never negative).
         assert bal.outstanding_debt >= Decimal("0"), (

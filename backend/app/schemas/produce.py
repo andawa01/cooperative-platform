@@ -9,6 +9,7 @@ Design notes:
 - Rates are append-only. There is no update or delete schema. The only way
   to change the future rate is to close the current one and insert a new one.
 """
+
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -25,6 +26,7 @@ class ProduceLineCreate(BaseModel):
 
 class ProduceLineUpdate(BaseModel):
     """PATCH semantics. name and description are editable; code and unit are not."""
+
     name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = None
 
@@ -54,6 +56,7 @@ class ProduceLineListResponse(BaseModel):
 # Rates
 # ---------------------------------------------------------------------------
 
+
 class RateCreate(BaseModel):
     rate_per_unit: Decimal = Field(gt=0, max_digits=12, decimal_places=4)
     currency: str = Field(pattern=r"^[A-Z]{3}$")
@@ -82,6 +85,7 @@ class RateCreateResponse(BaseModel):
     one existed. This lets the client update the full timeline in one call
     without a follow-up request.
     """
+
     new_rate: RateResponse
     previous_rate: RateResponse | None
     # Number of existing deliveries recorded in the affected window whose
@@ -95,4 +99,5 @@ class CurrentRateResponse(BaseModel):
     200 { "rate": null } means the produce line exists but has no rate in
     effect for the requested date. A missing produce line is still a 404.
     """
+
     rate: RateResponse | None

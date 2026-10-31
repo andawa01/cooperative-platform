@@ -5,6 +5,7 @@ The brief explicitly names "permission boundaries" as one of the things
 worth testing (see D-022). Every protected endpoint gets at least one
 denial test.
 """
+
 import uuid
 
 from app.core.security import create_access_token
@@ -18,6 +19,7 @@ def _auth_header(user) -> dict:
 # ---------------------------------------------------------------------------
 # Unauthenticated access
 # ---------------------------------------------------------------------------
+
 
 def test_no_token_401(client):
     for path in ["/farmers", "/produce-lines", "/deliveries", "/payments"]:
@@ -34,6 +36,7 @@ def test_bad_token_401(client):
 # ---------------------------------------------------------------------------
 # Authenticated but insufficient role
 # ---------------------------------------------------------------------------
+
 
 def test_clerk_cannot_create_produce_line(client, clerk):
     r = client.post(
@@ -74,6 +77,7 @@ def test_clerk_cannot_update_farmer(client, clerk, farmer):
 
 def test_admin_can_access(client, admin, db):
     from app.models.user import User
+
     assert db.get(User, admin.id) is not None, "admin fixture not in session"
     r = client.get("/farmers", headers=_auth_header(admin))
     assert r.status_code == 200, f"unexpected: {r.status_code} {r.text}"

@@ -18,6 +18,7 @@ Why NOT Postgres for the queue?
 - We do not want a queue polluting our money tables with thousands of
   short-lived rows.
 """
+
 import enum
 import uuid
 
@@ -67,16 +68,21 @@ class Notification(BaseModel):
 
     __table_args__ = (
         CheckConstraint(
-            "channel IN (" + ", ".join(f"'{v}'" for v in NOTIFICATION_CHANNEL_VALUES) + ")",
+            "channel IN ("
+            + ", ".join(f"'{v}'" for v in NOTIFICATION_CHANNEL_VALUES)
+            + ")",
             name="ck_notification_channel_valid",
         ),
         CheckConstraint(
-            "template IN (" + ", ".join(f"'{v}'" for v in NOTIFICATION_TEMPLATE_VALUES) + ")",
+            "template IN ("
+            + ", ".join(f"'{v}'" for v in NOTIFICATION_TEMPLATE_VALUES)
+            + ")",
             name="ck_notification_template_valid",
         ),
         CheckConstraint(
             "related_entity_type IS NULL OR related_entity_type IN ("
-            + ", ".join(f"'{v}'" for v in RELATED_ENTITY_TYPE_VALUES) + ")",
+            + ", ".join(f"'{v}'" for v in RELATED_ENTITY_TYPE_VALUES)
+            + ")",
             name="ck_notification_related_type_valid",
         ),
         # If one is set, both must be set (they describe the same fact).
@@ -85,6 +91,8 @@ class Notification(BaseModel):
             name="ck_notification_related_consistency",
         ),
         Index("ix_notification_farmer_created", "farmer_id", "created_at"),
+        # Global notification list ordering, see migration e52b47e5ff15.
+        Index("ix_notification_created_at", "created_at"),
         Index("ix_notification_related", "related_entity_type", "related_entity_id"),
     )
 

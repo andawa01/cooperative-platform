@@ -21,6 +21,7 @@ Design decisions worth remembering:
 4. Produce lines are soft-deleted (is_active=False). Historical deliveries
    reference them forever.
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -49,14 +50,19 @@ class ProduceLine(BaseModel):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     unit: Mapped[str] = mapped_column(String(20), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
     created_by_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
 
     __table_args__ = (
-        CheckConstraint("length(code) >= 2 AND code ~ '^[a-z0-9_]+$'", name="ck_produce_line_code_format"),
+        CheckConstraint(
+            "length(code) >= 2 AND code ~ '^[a-z0-9_]+$'",
+            name="ck_produce_line_code_format",
+        ),
         CheckConstraint("length(unit) >= 1", name="ck_produce_line_unit_not_empty"),
         Index("ix_produce_line_is_active", "is_active"),
     )
@@ -81,7 +87,8 @@ class Rate(BaseModel):
     )
 
     __table_args__ = (
-        # The exclusion constraint: no overlapping date ranges for the same produce line.
+        # The exclusion constraint: no overlapping date ranges for the same
+        # produce line.
         ExcludeConstraint(
             ("produce_line_id", "="),
             (sql_text("daterange(effective_from, effective_to, '[)')"), "&&"),
@@ -89,11 +96,17 @@ class Rate(BaseModel):
             using="gist",
         ),
         CheckConstraint("rate_per_unit > 0", name="ck_rate_positive"),
-        CheckConstraint("effective_to IS NULL OR effective_to > effective_from", name="ck_rate_date_order"),
+        CheckConstraint(
+            "effective_to IS NULL OR effective_to > effective_from",
+            name="ck_rate_date_order",
+        ),
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_rate_currency_iso4217"),
         Index("ix_rate_produce_line_effective", "produce_line_id", "effective_from"),
     )
 
     def __repr__(self) -> str:
         end = self.effective_to.isoformat() if self.effective_to else "current"
-        return f"<Rate {self.rate_per_unit} {self.currency}/{self.produce_line_id} from {self.effective_from} to {end}>"
+        return (
+            f"<Rate {self.rate_per_unit} {self.currency}/{self.produce_line_id} "
+            f"from {self.effective_from} to {end}>"
+        )

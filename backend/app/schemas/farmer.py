@@ -11,13 +11,13 @@ Design notes:
 - FarmerResponse is an ALLOWLIST. Never add a field just because the
   model has it.
 """
+
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 from app.models.farmer import FarmerStatus
-
 
 # E.164: + then 1-9 then 6-14 digits. Same regex as the DB CHECK.
 E164_PATTERN = r"^\+[1-9][0-9]{6,14}$"
@@ -46,6 +46,7 @@ class FarmerUpdate(BaseModel):
       merged_into  — set only via the merge endpoint
       created_by   — audit field, immutable
     """
+
     first_name: str | None = Field(default=None, min_length=1, max_length=100)
     last_name: str | None = Field(default=None, min_length=1, max_length=100)
     date_of_birth: date | None = None

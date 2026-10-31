@@ -9,6 +9,7 @@ That merge is what makes the two-store design visible: the *fact* of a
 notification lives in Postgres, its *progress* through the pipeline lives
 in Redis.
 """
+
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -21,9 +22,10 @@ from app.models.notification import (
     RelatedEntityType,
 )
 
-
 # Dispatch state — mirrors what we store in Redis.
-DispatchStatus = Literal["queued", "sending", "sent", "failed"]
+# "unknown" covers two edge cases: Redis unreachable at read time, or a
+# notification that exists in Postgres but whose Redis hash has been evicted.
+DispatchStatus = Literal["queued", "sending", "sent", "failed", "unknown"]
 
 
 class NotificationResponse(BaseModel):

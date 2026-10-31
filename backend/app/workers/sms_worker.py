@@ -24,24 +24,23 @@ SMS notifications this is acceptable. Documented in D-024.
 Shutdown: SIGINT/SIGTERM sets a flag; the loop exits after the current
 job (if any) finishes. This gives us a clean Ctrl+C without losing work.
 """
+
 import logging
 import signal
 import sys
 import time
-from datetime import datetime, timezone
 import uuid
-
-from sqlalchemy.orm import Session
+from datetime import UTC, datetime
 
 import redis
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.redis_client import redis_client
 from app.db.session import SessionLocal
 from app.models.notification import Notification
-from app.services import sms_gateway
 from app.services import notifications as notif_service
-
+from app.services import sms_gateway
 
 log = logging.getLogger("shambatrack.worker")
 
@@ -61,7 +60,7 @@ def _promote_due_retries() -> int:
     Move any retry items whose score is now in the past to the main queue.
     Returns the number moved (for logging / testing).
     """
-    now = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(UTC).timestamp()
     try:
         due = redis_client.zrangebyscore(
             notif_service.RETRY_KEY, "-inf", now, start=0, num=50
@@ -113,8 +112,11 @@ def _process(notification_id: str) -> None:
         # Mark as sending before the gateway call. If we crash here, admins
         # see 'sending' and can retry. This is the at-least-once trade.
         notif_service._write_state(
-            nid, status="sending", attempts=attempts,
-            last_error=None, sent_at=None,
+            nid,
+            status="sending",
+            attempts=attempts,
+            last_error=None,
+            sent_at=None,
         )
 
         result = sms_gateway.send(notification.recipient, notification.content)
@@ -125,7 +127,7 @@ def _process(notification_id: str) -> None:
                 status="sent",
                 attempts=attempts,
                 last_error=None,
-                sent_at=datetime.now(timezone.utc),
+                sent_at=datetime.now(UTC),
             )
             log.info("sent notification %s to %s", nid, notification.recipient)
             return
@@ -141,7 +143,9 @@ def _process(notification_id: str) -> None:
             )
             log.warning(
                 "notification %s permanently failed after %d attempts: %s",
-                nid, attempts, result.error,
+                nid,
+                attempts,
+                result.error,
             )
             return
 
@@ -160,7 +164,9 @@ def _process(notification_id: str) -> None:
         notif_service._enqueue(nid, delay_seconds=delay)
         log.info(
             "notification %s failed (attempt %d), retrying in %ds",
-            nid, attempts, delay,
+            nid,
+            attempts,
+            delay,
         )
     finally:
         db.close()
@@ -170,8 +176,11 @@ def run_loop() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    log.info("worker started; queue=%s retry=%s",
-             notif_service.QUEUE_KEY, notif_service.RETRY_KEY)
+    log.info(
+        "worker started; queue=%s retry=%s",
+        notif_service.QUEUE_KEY,
+        notif_service.RETRY_KEY,
+    )
 
     while not _stop:
         # 1. Promote due retries.
@@ -197,8 +206,7 @@ def run_loop() -> None:
             _process(notification_id)
         except Exception as exc:  # noqa: BLE001
             # A single bad job must not take down the worker.
-            log.exception("unhandled error processing %s: %s",
-                          notification_id, exc)
+            log.exception("unhandled error processing %s: %s", notification_id, exc)
 
     log.info("worker stopped")
 

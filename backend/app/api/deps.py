@@ -14,6 +14,7 @@ Auth decisions follow D-012 and D-014:
 - An inactive user is rejected even if their token is valid and unexpired.
 - Missing/invalid auth → 401. Insufficient permission → 403.
 """
+
 import uuid
 
 import jwt
@@ -24,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User, UserRole
-
+from app.services import token_denylist
 
 # auto_error=False so we can raise our own 401 instead of FastAPI's default
 # 403 when the Authorization header is missing. See D-014.
@@ -45,29 +46,24 @@ def _unauthorized(detail: str = "Not authenticated") -> HTTPException:
     )
 
 
-def get_current_user(
+def get_token_claims(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-    db: Session = Depends(get_db),
-) -> User:
+) -> dict:
     """
-    Resolve the current authenticated user from the request.
+    Decode and verify the bearer token, or raise 401.
 
-    Steps:
-      1. Extract the bearer token from the Authorization header.
-      2. Decode + verify it. Any failure (bad signature, expired, malformed)
-         → 401.
-      3. Load the user from the DB by id. Missing user → 401.
-      4. Reject if the user is inactive → 401.
+    This answers "is the token authentic?" only. It deliberately does not
+    touch the database. `get_current_user` builds on it and adds the
+    database-backed checks (existence, active, revocation).
 
-    The returned object is a live User ORM instance. Callers can read
-    user.role, user.id, etc. This is the authoritative state, not the
-    token's stale claim.
+    FastAPI caches dependency results per request, so an endpoint that
+    depends on both this and `get_current_user` decodes the token once.
     """
     if credentials is None or not credentials.credentials:
         raise _unauthorized("Missing bearer token")
 
     try:
-        claims = decode_access_token(credentials.credentials)
+        return decode_access_token(credentials.credentials)
     except jwt.ExpiredSignatureError:
         raise _unauthorized("Token expired")
     except jwt.PyJWTError:
@@ -75,6 +71,46 @@ def get_current_user(
         # the token was malformed. See D-014.
         raise _unauthorized("Invalid token")
 
+
+def assert_token_current(claims: dict, user: User) -> None:
+    """
+    Reject a token that is no longer valid for an otherwise-good user.
+
+    Two ways a token outlives its welcome:
+      - it was revoked at logout (`jti` on the Redis denylist), or
+      - the user's password changed after it was minted (`ver` claim).
+
+    Kept in one place on purpose. `get_current_user` is the normal path, but
+    `/auth/register` needs its own guard so the bootstrap case can accept a
+    missing token — and that guard must not silently drift back to trusting
+    a token these checks would reject. Missing `ver` (tokens minted before
+    the column existed) reads as 0.
+    """
+    if token_denylist.is_revoked(claims.get("jti")):
+        raise _unauthorized("Token revoked")
+
+    if int(claims.get("ver", 0)) != (user.token_version or 0):
+        raise _unauthorized("Token revoked")
+
+
+def get_current_user(
+    claims: dict = Depends(get_token_claims),
+    db: Session = Depends(get_db),
+) -> User:
+    """
+    Resolve the current authenticated user from the request.
+
+    Steps:
+      1. Decode + verify the token (get_token_claims).
+      2. Reject if the token was revoked at logout (jti denylist).
+      3. Load the user from the DB by id. Missing user → 401.
+      4. Reject an inactive account → 401.
+      5. Reject a token minted before the last password change
+         (`ver` claim vs users.token_version).
+
+    The returned object is a live User ORM instance: role and status are the
+    authoritative state, never the token's claims (D-015).
+    """
     sub = claims.get("sub")
     if not sub:
         raise _unauthorized("Invalid token")
@@ -92,6 +128,9 @@ def get_current_user(
         # We deliberately use 401 (not 403) here. A deactivated account is
         # treated like an unauthenticated one — the caller has no standing.
         raise _unauthorized("Account is inactive")
+
+    # Denylist (logout) and token_version (password change).
+    assert_token_current(claims, user)
 
     return user
 

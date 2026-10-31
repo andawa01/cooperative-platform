@@ -18,26 +18,28 @@ Cascade on reversal:
     Reversing a payment reverses all its non-reversed allocations in the
     same transaction. Same pattern as delivery reversal (D-019).
 """
+
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.db.session import write_transaction
 from app.models.delivery import Delivery
 from app.models.farmer import Farmer
-from app.db.session import write_transaction
 from app.models.payment import Payment, PaymentAllocation, PaymentStatus
 from app.models.user import User
 from app.schemas.payment import PaymentCreate
-
+from app.services import audit
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
 # ---------------------------------------------------------------------------
+
 
 class FarmerNotFound(Exception):
     pass
@@ -79,6 +81,7 @@ class CannotReverseReversal(Exception):
 # Fingerprint
 # ---------------------------------------------------------------------------
 
+
 def _fingerprint(data: PaymentCreate) -> str:
     """
     Deterministic hash of the semantically meaningful parts of a payment
@@ -112,6 +115,7 @@ def _fingerprint(data: PaymentCreate) -> str:
 # Remaining amounts
 # ---------------------------------------------------------------------------
 
+
 def _delivery_value(delivery: Delivery) -> Decimal:
     """Valued deliveries have amount = quantity * rate_snapshot."""
     if delivery.rate_snapshot is None:
@@ -122,8 +126,9 @@ def _delivery_value(delivery: Delivery) -> Decimal:
 def _net_allocated_for_delivery(db: Session, delivery_id: uuid.UUID) -> Decimal:
     """Sum of ALL allocations against this delivery, including reversals."""
     total = db.scalar(
-        select(func.coalesce(func.sum(PaymentAllocation.amount), Decimal("0")))
-        .where(PaymentAllocation.delivery_id == delivery_id)
+        select(func.coalesce(func.sum(PaymentAllocation.amount), Decimal("0"))).where(
+            PaymentAllocation.delivery_id == delivery_id
+        )
     )
     return total if total is not None else Decimal("0")
 
@@ -137,6 +142,7 @@ def _remaining_for_delivery(db: Session, delivery: Delivery) -> Decimal:
 # ---------------------------------------------------------------------------
 # Record
 # ---------------------------------------------------------------------------
+
 
 def record_payment(
     db: Session,
@@ -189,7 +195,7 @@ def record_payment(
             method=data.method.value,
             reference=data.reference,
             paid_at=data.paid_at,
-            recorded_at=datetime.now(timezone.utc),
+            recorded_at=datetime.now(UTC),
             recorded_by_id=actor.id,
             idempotency_key=data.idempotency_key,
             idempotency_fingerprint=fingerprint,
@@ -209,6 +215,36 @@ def record_payment(
         # would implicitly begin a new transaction, leaving the session
         # dirty and making the next `db.begin()` on it fail.
         db.refresh(payment)
+
+        # No audit row on the idempotent-replay path above: nothing happened.
+        # One payment, one entry — a replay must not look like a second event.
+        # Allocations are summed in the same transaction so the payload
+        # records how the money was actually split (the model has no
+        # relationship to count from).
+        alloc_count, alloc_sum = db.execute(
+            select(
+                func.count(PaymentAllocation.id),
+                func.coalesce(func.sum(PaymentAllocation.amount), Decimal("0")),
+            ).where(PaymentAllocation.payment_id == payment.id)
+        ).one()
+        audit.record(
+            db,
+            actor_id=actor.id,
+            action="payment.create",
+            entity_type="payment",
+            entity_id=payment.id,
+            after={
+                "farmer_id": str(data.farmer_id),
+                "amount": str(data.amount),
+                "currency": data.currency,
+                "method": data.method.value,
+                "reference": data.reference,
+                "paid_at": data.paid_at.isoformat(),
+                "allocations": int(alloc_count),
+                "allocated": str(alloc_sum),
+                "unallocated_amount": str(data.amount - alloc_sum),
+            },
+        )
 
     return payment, False
 
@@ -314,6 +350,7 @@ def _allocate_fifo(db: Session, payment: Payment, farmer: Farmer):
 # Reverse
 # ---------------------------------------------------------------------------
 
+
 def reverse_payment(
     db: Session,
     payment_id: uuid.UUID,
@@ -353,7 +390,7 @@ def reverse_payment(
             method=original.method,
             reference=original.reference,
             paid_at=original.paid_at,
-            recorded_at=datetime.now(timezone.utc),
+            recorded_at=datetime.now(UTC),
             recorded_by_id=actor.id,
             idempotency_key=f"reversal:{original.id}",
             idempotency_fingerprint="0" * 64,  # marker; never matched as input
@@ -391,12 +428,35 @@ def reverse_payment(
 
         db.refresh(reversal)
 
+        # Subject is the original payment: that is what a person asks about.
+        audit.record(
+            db,
+            actor_id=actor.id,
+            action="payment.reverse",
+            entity_type="payment",
+            entity_id=original.id,
+            before={
+                "amount": str(original.amount),
+                "currency": original.currency,
+                "method": original.method,
+                "status": original.status,
+                "reversed": False,
+            },
+            after={
+                "reversal_id": str(reversal.id),
+                "reason": reason,
+                "reversed": True,
+                "reversed_allocations": len(allocations),
+            },
+        )
+
     return reversal
 
 
 # ---------------------------------------------------------------------------
 # Read
 # ---------------------------------------------------------------------------
+
 
 def get_payment(db: Session, payment_id: uuid.UUID) -> Payment:
     p = db.get(Payment, payment_id)
@@ -423,17 +483,46 @@ def list_payments(
     for c in conds:
         stmt = stmt.where(c)
         count_stmt = count_stmt.where(c)
-    stmt = stmt.order_by(Payment.paid_at.desc(), Payment.id.desc()).limit(limit).offset(offset)
+    stmt = (
+        stmt.order_by(Payment.paid_at.desc(), Payment.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     return list(db.scalars(stmt).all()), db.scalar(count_stmt) or 0
 
 
-def unallocated_amount(db: Session, payment: Payment) -> Decimal:
-    """payment.amount minus net allocations on this payment."""
-    total = db.scalar(
-        select(func.coalesce(func.sum(PaymentAllocation.amount), Decimal("0")))
-        .where(PaymentAllocation.payment_id == payment.id)
-    )
-    return payment.amount - (total if total is not None else Decimal("0"))
+def allocation_state_for_payments(
+    db: Session, payments: list[Payment]
+) -> tuple[dict[uuid.UUID, list[PaymentAllocation]], dict[uuid.UUID, Decimal]]:
+    """
+    Allocations and net allocated totals for a whole page, in ONE query.
+
+    A list screen needs two facts per payment: its allocation rows and their
+    summed amount. The naive path asks the database for each separately, per
+    row — 2N statements, so a 100-row page cost 201 queries. Both facts come
+    from the same rows, so one query answers both.
+
+    Returns ({payment_id: rows}, {payment_id: net}). Payments with no
+    allocations appear in both maps with an empty list and zero, so callers
+    never have to special-case them.
+    """
+    if not payments:
+        return {}, {}
+
+    ids = [p.id for p in payments]
+    rows = db.scalars(
+        select(PaymentAllocation)
+        .where(PaymentAllocation.payment_id.in_(ids))
+        .order_by(PaymentAllocation.created_at.asc())
+    ).all()
+
+    by_payment: dict[uuid.UUID, list[PaymentAllocation]] = {i: [] for i in ids}
+    net: dict[uuid.UUID, Decimal] = {i: Decimal("0") for i in ids}
+    for row in rows:
+        by_payment[row.payment_id].append(row)
+        net[row.payment_id] += row.amount
+    return by_payment, net
+
 
 def list_allocations_for_payment(db: Session, payment_id: uuid.UUID) -> list:
     return list(

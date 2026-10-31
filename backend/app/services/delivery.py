@@ -17,26 +17,27 @@ Concurrency:
   can create credit-on-account). We take the farmer-row lock per D-010.
 - Valuing a pending delivery IS financial. Same lock.
 """
-import uuid
-from datetime import datetime, timezone
-from decimal import Decimal
 
-from sqlalchemy import func, select, text
+import uuid
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.db.session import write_transaction
 from app.models.delivery import Delivery
 from app.models.farmer import Farmer, FarmerStatus
 from app.models.payment import PaymentAllocation
 from app.models.produce import ProduceLine, Rate
 from app.models.user import User
 from app.schemas.delivery import DeliveryCreate
-from app.core.config import settings
-from app.db.session import write_transaction
-
+from app.services import audit
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
 # ---------------------------------------------------------------------------
+
 
 class DeliveryNotFound(Exception):
     pass
@@ -74,6 +75,7 @@ class NoRateAvailableForValuation(Exception):
 # Rate lookup
 # ---------------------------------------------------------------------------
 
+
 def _find_rate_for(db: Session, produce_line_id: uuid.UUID, on_date) -> Rate | None:
     """
     Return the Rate in effect on the given date for this produce line.
@@ -91,6 +93,7 @@ def _find_rate_for(db: Session, produce_line_id: uuid.UUID, on_date) -> Rate | N
 # ---------------------------------------------------------------------------
 # Record
 # ---------------------------------------------------------------------------
+
 
 def record_delivery(
     db: Session,
@@ -146,7 +149,7 @@ def record_delivery(
         produce_line_id=data.produce_line_id,
         quantity=data.quantity,
         delivered_at=data.delivered_at,
-        recorded_at=datetime.now(timezone.utc),
+        recorded_at=datetime.now(UTC),
         recorded_by_id=actor.id,
         rate_snapshot=rate_value,
         currency_snapshot=currency,
@@ -159,6 +162,24 @@ def record_delivery(
     # Refresh before committing: a SELECT after commit would implicitly
     # begin a new transaction and leave the session dirty for the caller.
     db.refresh(delivery)
+
+    # Same transaction as the insert: either both rows land or neither does.
+    audit.record(
+        db,
+        actor_id=actor.id,
+        action="delivery.create",
+        entity_type="delivery",
+        entity_id=delivery.id,
+        after={
+            "farmer_id": str(data.farmer_id),
+            "produce_line_id": str(data.produce_line_id),
+            "quantity": str(data.quantity),
+            "delivered_at": data.delivered_at.isoformat(),
+            "rate_snapshot": (str(rate_value) if rate_value is not None else None),
+            "currency": currency,
+            "pending_valuation": rate_value is None,
+        },
+    )
     db.commit()
     return delivery
 
@@ -166,6 +187,7 @@ def record_delivery(
 # ---------------------------------------------------------------------------
 # List / read
 # ---------------------------------------------------------------------------
+
 
 def get_delivery(db: Session, delivery_id: uuid.UUID) -> Delivery:
     d = db.get(Delivery, delivery_id)
@@ -235,6 +257,7 @@ def list_deliveries(
 # Value (one-time, audited)
 # ---------------------------------------------------------------------------
 
+
 def value_delivery(
     db: Session,
     delivery_id: uuid.UUID,
@@ -261,13 +284,15 @@ def value_delivery(
             return delivery
 
         if delivery.reversal_of_id is not None:
-            raise DeliveryNotValued(
-                "cannot value a reversal row"
-            )
+            raise DeliveryNotValued("cannot value a reversal row")
+
+        # Captured before the mutation so `before` describes the row as it
+        # was, not as it ends up.
+        previous_currency = delivery.currency_snapshot
 
         # Take the farmer lock before mutating financial state.
         db.execute(
-           select(Farmer.id).where(Farmer.id == delivery.farmer_id).with_for_update()
+            select(Farmer.id).where(Farmer.id == delivery.farmer_id).with_for_update()
         )
 
         rate = _find_rate_for(
@@ -281,6 +306,23 @@ def value_delivery(
         delivery.rate_snapshot = rate.rate_per_unit
         delivery.currency_snapshot = rate.currency
 
+        audit.record(
+            db,
+            actor_id=actor.id,
+            action="delivery.value",
+            entity_type="delivery",
+            entity_id=delivery.id,
+            before={
+                "rate_snapshot": None,
+                "currency": previous_currency,
+            },
+            after={
+                "rate_snapshot": str(rate.rate_per_unit),
+                "currency": rate.currency,
+                "delivered_at": delivery.delivered_at.isoformat(),
+            },
+        )
+
         db.refresh(delivery)
 
     return delivery
@@ -289,6 +331,7 @@ def value_delivery(
 # ---------------------------------------------------------------------------
 # Reverse (cascades allocations, same transaction)
 # ---------------------------------------------------------------------------
+
 
 def reverse_delivery(
     db: Session,
@@ -326,7 +369,7 @@ def reverse_delivery(
 
         # Farmer lock (see D-010).
         db.execute(
-           select(Farmer.id).where(Farmer.id == original.farmer_id).with_for_update()
+            select(Farmer.id).where(Farmer.id == original.farmer_id).with_for_update()
         )
 
         reversal = Delivery(
@@ -336,7 +379,7 @@ def reverse_delivery(
             # Inherited timestamp: reconciliation anchor, NOT a second
             # physical event (see D-019).
             delivered_at=original.delivered_at,
-            recorded_at=datetime.now(timezone.utc),
+            recorded_at=datetime.now(UTC),
             recorded_by_id=actor.id,
             rate_snapshot=original.rate_snapshot,
             currency_snapshot=original.currency_snapshot,
@@ -373,5 +416,31 @@ def reverse_delivery(
 
         db.flush()
         db.refresh(reversal)
+
+        # The subject is the ORIGINAL delivery — that is the row a person
+        # asks about later. The reversal row's id is in the payload.
+        audit.record(
+            db,
+            actor_id=actor.id,
+            action="delivery.reverse",
+            entity_type="delivery",
+            entity_id=original.id,
+            before={
+                "quantity": str(original.quantity),
+                "rate_snapshot": str(original.rate_snapshot),
+                "amount": (
+                    str(original.quantity * original.rate_snapshot)
+                    if original.rate_snapshot is not None
+                    else None
+                ),
+                "reversed": False,
+            },
+            after={
+                "reversal_id": str(reversal.id),
+                "reason": reason,
+                "reversed": True,
+                "reversed_allocations": len(allocations),
+            },
+        )
 
     return reversal

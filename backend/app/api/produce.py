@@ -5,6 +5,7 @@ Permissions:
 - read (lines, rates): admin + clerk
 - write (create/update/deactivate lines, create rates): admin only
 """
+
 import uuid
 from datetime import date
 
@@ -33,7 +34,6 @@ from app.services.produce import (
     RateOverlap,
 )
 
-
 router = APIRouter(tags=["produce"])
 
 
@@ -41,19 +41,24 @@ def _translate(exc: Exception) -> HTTPException:
     if isinstance(exc, ProduceLineNotFound):
         return HTTPException(status.HTTP_404_NOT_FOUND, "Produce line not found")
     if isinstance(exc, ProduceLineCodeTaken):
-        return HTTPException(status.HTTP_409_CONFLICT, "Produce line code already exists")
+        return HTTPException(
+            status.HTTP_409_CONFLICT, "Produce line code already exists"
+        )
     if isinstance(exc, ProduceLineInactive):
         return HTTPException(status.HTTP_409_CONFLICT, "Produce line is inactive")
     if isinstance(exc, RateBackdatedBeforePrevious):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     if isinstance(exc, RateOverlap):
-        return HTTPException(status.HTTP_409_CONFLICT, "Rate overlaps existing interval")
+        return HTTPException(
+            status.HTTP_409_CONFLICT, "Rate overlaps existing interval"
+        )
     return HTTPException(status.HTTP_400_BAD_REQUEST, "Bad request")
 
 
 # ---------------------------------------------------------------------------
 # Produce lines
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/produce-lines",
@@ -129,6 +134,7 @@ def deactivate_produce_line(
 # Rates
 # ---------------------------------------------------------------------------
 
+
 @router.post(
     "/produce-lines/{line_id}/rates",
     response_model=RateCreateResponse,
@@ -193,9 +199,7 @@ def get_current_rate(
         rate = produce_service.get_rate_at(db, line_id, date.today())
     except ProduceLineNotFound as exc:
         raise _translate(exc)
-    return CurrentRateResponse(
-        rate=RateResponse.model_validate(rate) if rate else None
-    )
+    return CurrentRateResponse(rate=RateResponse.model_validate(rate) if rate else None)
 
 
 @router.get(
@@ -213,6 +217,4 @@ def get_rate_at_date(
         rate = produce_service.get_rate_at(db, line_id, on)
     except ProduceLineNotFound as exc:
         raise _translate(exc)
-    return CurrentRateResponse(
-        rate=RateResponse.model_validate(rate) if rate else None
-    )
+    return CurrentRateResponse(rate=RateResponse.model_validate(rate) if rate else None)

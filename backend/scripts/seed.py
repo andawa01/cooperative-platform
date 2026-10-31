@@ -30,10 +30,11 @@ The next service call finds a transaction already in progress and uses a
 savepoint — the writes are real, but the outer transaction stays open. To
 make each step independent, we explicitly commit after every service call.
 """
+
 import argparse
 import random
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import text
@@ -45,11 +46,10 @@ from app.models.produce import ProduceLine, Rate
 from app.models.user import User, UserRole
 from app.schemas.delivery import DeliveryCreate
 from app.schemas.farmer import FarmerCreate
-from app.schemas.payment import AllocationInput, PaymentCreate
+from app.schemas.payment import PaymentCreate
 from app.services import delivery as delivery_service
 from app.services import farmer as farmer_service
 from app.services import payment as payment_service
-
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -73,21 +73,50 @@ N_DELIVERIES = 150
 N_PAYMENTS = 12
 
 FIRST_NAMES = [
-    "Kamau", "Otieno", "Wanjiru", "Mwangi", "Achieng",
-    "Kipchoge", "Nyokabi", "Omondi", "Wafula", "Cheruiyot",
-    "Wanjiku", "Akinyi", "Nyambura", "Adhiambo", "Chebet",
-    "Nafula", "Muthoni", "Wairimu", "Jerono", "Atieno",
+    "Kamau",
+    "Otieno",
+    "Wanjiru",
+    "Mwangi",
+    "Achieng",
+    "Kipchoge",
+    "Nyokabi",
+    "Omondi",
+    "Wafula",
+    "Cheruiyot",
+    "Wanjiku",
+    "Akinyi",
+    "Nyambura",
+    "Adhiambo",
+    "Chebet",
+    "Nafula",
+    "Muthoni",
+    "Wairimu",
+    "Jerono",
+    "Atieno",
 ]
 LAST_NAMES = [
-    "Kimani", "Ochieng", "Mutua", "Karanja", "Njoroge",
-    "Wekesa", "Barasa", "Kiprono", "Odhiambo", "Muthama",
-    "Waweru", "Kilonzo", "Maina", "Owuor", "Kibet",
+    "Kimani",
+    "Ochieng",
+    "Mutua",
+    "Karanja",
+    "Njoroge",
+    "Wekesa",
+    "Barasa",
+    "Kiprono",
+    "Odhiambo",
+    "Muthama",
+    "Waweru",
+    "Kilonzo",
+    "Maina",
+    "Owuor",
+    "Kibet",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Reset
 # ---------------------------------------------------------------------------
+
 
 def _reset(session) -> None:
     """
@@ -121,6 +150,7 @@ def _reset(session) -> None:
 # ---------------------------------------------------------------------------
 # Reference data (direct ORM)
 # ---------------------------------------------------------------------------
+
 
 def _create_users(session) -> tuple[User, list[User]]:
     print("Creating users...", end=" ", flush=True)
@@ -180,12 +210,18 @@ def _create_rates(session, admin: User, lines: dict[str, ProduceLine]) -> None:
     print("Creating rates...", end=" ", flush=True)
     # Two rates per line (except banana): historical and current.
     schedule = {
-        "coffee": [(date(2024, 1, 1), Decimal("45.0000")),
-                   (date(2025, 1, 1), Decimal("50.0000"))],
-        "tea":    [(date(2024, 1, 1), Decimal("30.0000")),
-                   (date(2025, 1, 1), Decimal("35.0000"))],
-        "dairy":  [(date(2024, 1, 1), Decimal("40.0000")),
-                   (date(2025, 1, 1), Decimal("42.0000"))],
+        "coffee": [
+            (date(2024, 1, 1), Decimal("45.0000")),
+            (date(2025, 1, 1), Decimal("50.0000")),
+        ],
+        "tea": [
+            (date(2024, 1, 1), Decimal("30.0000")),
+            (date(2025, 1, 1), Decimal("35.0000")),
+        ],
+        "dairy": [
+            (date(2024, 1, 1), Decimal("40.0000")),
+            (date(2025, 1, 1), Decimal("42.0000")),
+        ],
     }
     count = 0
     for code, entries in schedule.items():
@@ -193,14 +229,16 @@ def _create_rates(session, admin: User, lines: dict[str, ProduceLine]) -> None:
         for i, (eff_from, rate) in enumerate(entries):
             is_last = i == len(entries) - 1
             eff_to = None if is_last else entries[i + 1][0]
-            session.add(Rate(
-                produce_line_id=line.id,
-                rate_per_unit=rate,
-                currency="KES",
-                effective_from=eff_from,
-                effective_to=eff_to,
-                created_by_id=admin.id,
-            ))
+            session.add(
+                Rate(
+                    produce_line_id=line.id,
+                    rate_per_unit=rate,
+                    currency="KES",
+                    effective_from=eff_from,
+                    effective_to=eff_to,
+                    created_by_id=admin.id,
+                )
+            )
             count += 1
     session.commit()
     print(f"{count} created")
@@ -209,6 +247,7 @@ def _create_rates(session, admin: User, lines: dict[str, ProduceLine]) -> None:
 # ---------------------------------------------------------------------------
 # Farmers (via service)
 # ---------------------------------------------------------------------------
+
 
 def _create_farmers(session, admin: User, clerk: User) -> list[Farmer]:
     print(f"Creating {N_FARMERS} farmers...", end=" ", flush=True)
@@ -223,10 +262,17 @@ def _create_farmers(session, admin: User, clerk: User) -> list[Farmer]:
             last_name=last,
             phone=f"+2547{i:08d}",
             national_id=f"KE{RNG.randint(10000000, 99999999)}" if has_nid else None,
-            location=RNG.choice([
-                "Kisumu Central", "Kisumu East", "Nandi Hills",
-                "Kapsabet", "Kericho", "Nakuru", None,
-            ]),
+            location=RNG.choice(
+                [
+                    "Kisumu Central",
+                    "Kisumu East",
+                    "Nandi Hills",
+                    "Kapsabet",
+                    "Kericho",
+                    "Nakuru",
+                    None,
+                ]
+            ),
         )
         try:
             farmer = farmer_service.create_farmer(session, data, clerk)
@@ -259,13 +305,16 @@ def _verify_farmers(session, admin: User, farmers: list[Farmer]) -> None:
             farmer.status = FarmerStatus.ARCHIVED.value
         # The remainder stay pending_verification.
     session.commit()
-    print(f"{verified} verified, {n_pending} pending, "
-          f"{n_suspended} suspended, {n_archived} archived")
+    print(
+        f"{verified} verified, {n_pending} pending, "
+        f"{n_suspended} suspended, {n_archived} archived"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Deliveries (via service)
 # ---------------------------------------------------------------------------
+
 
 def _create_deliveries(
     session,
@@ -283,7 +332,7 @@ def _create_deliveries(
     unvalued_line = "banana"
 
     # Deliveries spread over the past 180 days.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     created = []
     for i in range(N_DELIVERIES):
@@ -321,6 +370,7 @@ def _create_deliveries(
 # Payments (via service)
 # ---------------------------------------------------------------------------
 
+
 def _create_payments(
     session,
     admin: User,
@@ -329,7 +379,7 @@ def _create_payments(
     print(f"Recording {N_PAYMENTS} payments...", end=" ", flush=True)
     active = [f for f in farmers if f.status == FarmerStatus.ACTIVE.value]
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     created = []
     for i in range(N_PAYMENTS):
         farmer = RNG.choice(active)
@@ -347,7 +397,8 @@ def _create_payments(
                     currency="KES",
                     method=RNG.choice(["cash", "mobile_money", "bank_transfer"]),
                     reference=f"MPESA-{RNG.randint(100000, 999999)}"
-                    if RNG.random() < 0.6 else None,
+                    if RNG.random() < 0.6
+                    else None,
                     paid_at=paid_at,
                     idempotency_key=f"seed-{i:04d}",
                 ),
@@ -363,16 +414,14 @@ def _create_payments(
     return created
 
 
-def _create_one_advance_payment(
-    session, admin: User, farmers: list[Farmer]
-) -> None:
+def _create_one_advance_payment(session, admin: User, farmers: list[Farmer]) -> None:
     """
     One deliberately oversized payment, to demo available credit.
     """
     print("Creating one advance payment...", end=" ", flush=True)
     active = [f for f in farmers if f.status == FarmerStatus.ACTIVE.value]
     farmer = active[0]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     try:
         payment_service.record_payment(
             session,
@@ -397,6 +446,7 @@ def _create_one_advance_payment(
 # ---------------------------------------------------------------------------
 # Reversals (via service)
 # ---------------------------------------------------------------------------
+
 
 def _create_reversals(session, admin: User, deliveries, payments) -> None:
     print("Creating reversals...", end=" ", flush=True)
@@ -438,6 +488,7 @@ def _create_reversals(session, admin: User, deliveries, payments) -> None:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Seed the ShambaTrack database.")

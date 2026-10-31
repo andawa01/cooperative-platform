@@ -11,9 +11,8 @@ The interesting assertions are:
 We deliberately do NOT test the gateway's randomness — we seed a fail rate
 of 0 via monkeypatch when we need determinism.
 """
+
 import uuid
-from datetime import datetime, timezone
-from decimal import Decimal
 
 import pytest
 
@@ -86,7 +85,11 @@ def test_enqueue_writes_postgres_and_redis(db, farmer):
     # Simulate what enqueue_delivery_recorded does after creating the row.
     ok = notif_service._enqueue(n.id)
     notif_service._write_state(
-        n.id, status="queued", attempts=0, last_error=None, sent_at=None,
+        n.id,
+        status="queued",
+        attempts=0,
+        last_error=None,
+        sent_at=None,
     )
     assert ok is True
 
@@ -101,8 +104,11 @@ def test_enqueue_writes_postgres_and_redis(db, farmer):
 def test_retry_notification_requeues(db, farmer, admin):
     n = _create_notification(db, farmer)
     notif_service._write_state(
-        n.id, status="failed", attempts=3,
-        last_error="simulated gateway failure", sent_at=None,
+        n.id,
+        status="failed",
+        attempts=3,
+        last_error="simulated gateway failure",
+        sent_at=None,
     )
 
     notif_service.retry_notification(db, n.id)

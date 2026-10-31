@@ -8,14 +8,20 @@ Permissions:
 - Reverse: admin only
 - Balance: admin + clerk
 """
+
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_role
+from app.core.config import settings
 from app.db.session import get_db
+from app.models.farmer import Farmer
+from app.models.produce import ProduceLine
 from app.models.user import User, UserRole
 from app.schemas.delivery import (
     BalanceResponse,
@@ -37,8 +43,6 @@ from app.services.delivery import (
     ProduceLineInactive,
     ProduceLineNotFound,
 )
-from app.core.config import settings
-
 
 router = APIRouter(tags=["deliveries"])
 
@@ -64,8 +68,71 @@ def _translate(exc: Exception) -> HTTPException:
 
 
 # ---------------------------------------------------------------------------
+# Serialization
+# ---------------------------------------------------------------------------
+
+
+def _serialize_many(
+    db: Session, deliveries: Iterable[object]
+) -> list[DeliveryResponse]:
+    """
+    Build DeliveryResponse objects with farmer and produce-line names.
+
+    Names are resolved in two bulk queries for the whole page, never one
+    query per row. The delivery table stores ids only (D-008), so this is
+    where the display join happens.
+    """
+    rows = list(deliveries)
+    if not rows:
+        return []
+
+    farmer_ids = {d.farmer_id for d in rows}
+    line_ids = {d.produce_line_id for d in rows}
+
+    farmers = {
+        f.id: f for f in db.scalars(select(Farmer).where(Farmer.id.in_(farmer_ids)))
+    }
+    lines = {
+        line.id: line
+        for line in db.scalars(select(ProduceLine).where(ProduceLine.id.in_(line_ids)))
+    }
+
+    return [
+        DeliveryResponse(
+            id=d.id,
+            farmer_id=d.farmer_id,
+            produce_line_id=d.produce_line_id,
+            farmer_name=(
+                farmers[d.farmer_id].full_name
+                if d.farmer_id in farmers
+                else "Unknown farmer"
+            ),
+            produce_line_name=(
+                lines[d.produce_line_id].name
+                if d.produce_line_id in lines
+                else "Unknown produce line"
+            ),
+            quantity=d.quantity,
+            delivered_at=d.delivered_at,
+            recorded_at=d.recorded_at,
+            recorded_by_id=d.recorded_by_id,
+            rate_snapshot=d.rate_snapshot,
+            currency_snapshot=d.currency_snapshot,
+            amount=d.amount,
+            reversal_of_id=d.reversal_of_id,
+            location=d.location,
+            notes=d.notes,
+            created_at=d.created_at,
+            updated_at=d.updated_at,
+        )
+        for d in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Deliveries
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/deliveries",
@@ -96,7 +163,7 @@ def record_delivery(
         # Never let a notification failure hide a successful delivery.
         pass
 
-    return delivery
+    return _serialize_many(db, [delivery])[0]
 
 
 @router.get("/deliveries", response_model=DeliveryListResponse)
@@ -125,7 +192,9 @@ def list_deliveries(
         limit=limit,
         offset=offset,
     )
-    return DeliveryListResponse(items=items, total=total, limit=limit, offset=offset)
+    return DeliveryListResponse(
+        items=_serialize_many(db, items), total=total, limit=limit, offset=offset
+    )
 
 
 @router.get("/deliveries/{delivery_id}", response_model=DeliveryResponse)
@@ -135,9 +204,10 @@ def get_delivery(
     _: User = Depends(get_current_user),
 ):
     try:
-        return delivery_service.get_delivery(db, delivery_id)
+        delivery = delivery_service.get_delivery(db, delivery_id)
     except DeliveryNotFound as exc:
         raise _translate(exc)
+    return _serialize_many(db, [delivery])[0]
 
 
 @router.post(
@@ -156,13 +226,14 @@ def value_delivery(
     it. Fails if no rate exists for that date.
     """
     try:
-        return delivery_service.value_delivery(db, delivery_id, actor)
+        delivery = delivery_service.value_delivery(db, delivery_id, actor)
     except (
         DeliveryNotFound,
         DeliveryNotValued,
         NoRateAvailableForValuation,
     ) as exc:
         raise _translate(exc)
+    return _serialize_many(db, [delivery])[0]
 
 
 @router.post(
@@ -181,18 +252,22 @@ def reverse_delivery(
     allocations in the same transaction. Returns the reversal row.
     """
     try:
-        return delivery_service.reverse_delivery(db, delivery_id, payload.reason, actor)
+        reversal = delivery_service.reverse_delivery(
+            db, delivery_id, payload.reason, actor
+        )
     except (
         DeliveryNotFound,
         DeliveryAlreadyReversed,
         DeliveryNotValued,
     ) as exc:
         raise _translate(exc)
+    return _serialize_many(db, [reversal])[0]
 
 
 # ---------------------------------------------------------------------------
 # Balance
 # ---------------------------------------------------------------------------
+
 
 @router.get(
     "/farmers/{farmer_id}/balance",
@@ -215,6 +290,7 @@ def get_farmer_balance(
     # Reuse the farmer existence check from the farmers service.
     from app.services import farmer as farmer_service
     from app.services.farmer import FarmerNotFound as FarmerSvcNotFound
+
     try:
         farmer_service.get_farmer(db, farmer_id)
     except FarmerSvcNotFound:
