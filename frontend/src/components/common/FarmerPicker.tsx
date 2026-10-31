@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Check, Search, UserRound } from 'lucide-react'
 
+import { Avatar } from '@/components/common/Avatar'
 import { useFarmers } from '@/hooks/useFarmers'
 import type { Farmer } from '@/types/api'
-import { cn } from '@/lib/utils'
 
 export function FarmerPicker({
   value,
@@ -27,20 +28,29 @@ export function FarmerPicker({
     { enabled: open },
   )
 
+  const results = useMemo(() => data?.items ?? [], [data])
+
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700">
+      <span className="flex items-center gap-1 text-sm font-medium text-stone-700">
         Farmer
-        {required && <span className="ml-0.5 text-red-500">*</span>}
-      </label>
+        {required && (
+          <span className="text-danger" aria-hidden="true">
+            *
+          </span>
+        )}
+      </span>
 
       {value ? (
-        <div className="mt-1 flex items-center justify-between rounded-md border border-gray-300 bg-white px-3 py-2">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-gray-900">
+        <div className="mt-1.5 flex items-center gap-3 rounded-lg border border-border bg-card p-2.5 shadow-xs">
+          <Avatar first={value.first_name} last={value.last_name} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-foreground">
               {value.first_name} {value.last_name}
             </div>
-            <div className="truncate text-xs text-gray-500">{value.phone}</div>
+            <div className="truncate text-xs text-muted-foreground tabular-nums">
+              {value.phone}
+            </div>
           </div>
           <button
             type="button"
@@ -48,7 +58,7 @@ export function FarmerPicker({
               onChange(null)
               setQuery('')
             }}
-            className="ml-2 text-xs font-medium text-primary-600 hover:text-primary-700"
+            className="rounded-md px-2 py-1 text-xs font-medium text-primary-ink transition-colors hover:bg-primary-soft"
           >
             Change
           </button>
@@ -57,9 +67,19 @@ export function FarmerPicker({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="mt-1 w-full rounded-md border border-dashed border-gray-300 bg-white px-3 py-3 text-left text-sm text-gray-500 hover:border-primary-400 hover:bg-primary-50/40"
+          className="mt-1.5 flex w-full items-center gap-3 rounded-lg border border-dashed border-stone-300 bg-card px-3 py-3 text-left transition-colors hover:border-primary-400 hover:bg-primary-soft/40"
         >
-          Tap to select a farmer…
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-100 text-stone-400">
+            <UserRound className="h-4 w-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-stone-700">
+              Select a farmer
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Search by name or phone number
+            </span>
+          </span>
         </button>
       )}
 
@@ -67,44 +87,52 @@ export function FarmerPicker({
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-30 flex items-end justify-center bg-black/30 sm:items-center"
+          aria-label="Select farmer"
+          className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-t-xl bg-white p-4 shadow-lg sm:rounded-xl"
+            className="animate-in fade-in slide-in-from-bottom-4 flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl bg-card shadow-lift duration-200 sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-gray-900">
+            <div className="flex items-center justify-between border-b border-border/70 px-5 py-3.5">
+              <h3 className="text-sm font-semibold text-foreground">
                 Select farmer
               </h3>
               <button
                 onClick={() => setOpen(false)}
-                className="text-sm text-gray-500 hover:text-gray-800"
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-stone-100 hover:text-foreground"
               >
                 Close
               </button>
             </div>
 
-            <input
-              type="search"
-              autoFocus
-              placeholder="Search by name or phone"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-base focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-            />
+            <div className="px-5 py-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-stone-400" />
+                <input
+                  type="search"
+                  autoFocus
+                  placeholder="Search by name or phone"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-input bg-card pr-3 pl-9 text-[15px] shadow-xs transition-[border-color,box-shadow] placeholder:text-stone-400 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/12 focus:outline-none"
+                />
+              </div>
+            </div>
 
-            <div className="mt-3 max-h-80 overflow-y-auto">
+            <div className="min-h-24 flex-1 overflow-y-auto px-2 pb-3">
               {isLoading && (
-                <p className="py-4 text-center text-sm text-gray-500">Searching…</p>
-              )}
-              {data?.items.length === 0 && (
-                <p className="py-4 text-center text-sm text-gray-500">
-                  No farmers found
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Searching…
                 </p>
               )}
-              {data?.items.map((f) => (
+              {!isLoading && results.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No active farmers match “{query}”.
+                </p>
+              )}
+              {results.map((f) => (
                 <button
                   key={f.id}
                   type="button"
@@ -112,17 +140,18 @@ export function FarmerPicker({
                     onChange(f)
                     setOpen(false)
                   }}
-                  className={cn(
-                    'flex w-full items-center justify-between gap-3 rounded-md px-3 py-3 text-left',
-                    'hover:bg-gray-50',
-                  )}
+                  className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-stone-50"
                 >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-gray-900">
+                  <Avatar first={f.first_name} last={f.last_name} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-foreground">
                       {f.first_name} {f.last_name}
                     </div>
-                    <div className="truncate text-xs text-gray-500">{f.phone}</div>
+                    <div className="truncate text-xs text-muted-foreground tabular-nums">
+                      {f.phone}
+                    </div>
                   </div>
+                  <Check className="h-4 w-4 shrink-0 text-primary-ink opacity-0 transition-opacity group-hover:opacity-100" />
                 </button>
               ))}
             </div>

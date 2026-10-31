@@ -1,10 +1,10 @@
 /**
  * Shared data table.
  *
- * One implementation for every list screen, modelled on the ICRMS data table:
- * a bordered card, a muted header row with small uppercase labels, ruled rows
- * with hover, an optional toolbar strip, an in-table empty state, skeleton
- * rows while loading, and a pagination footer.
+ * One implementation for every list screen: a card surface, a quiet header row
+ * with small uppercase labels, ruled rows with a hover tint, an optional
+ * toolbar strip, an in-table empty state, skeleton rows while loading, and a
+ * pagination footer.
  *
  * Deliberate choices:
  * - Column definitions, not a table library. The backend paginates and does
@@ -63,9 +63,8 @@ export interface DataTablePagination {
 }
 
 /**
- * Page numbers with single-page gaps, identical to the ICRMS table:
- * always first and last, a sliding window around the current page, and an
- * ellipsis wherever numbers were skipped.
+ * Page numbers with single-page gaps: always first and last, a sliding window
+ * around the current page, and an ellipsis wherever numbers were skipped.
  */
 function getPageNumbers(current: number, total: number): (number | 'ellipsis')[] {
   const pages: (number | 'ellipsis')[] = []
@@ -126,9 +125,9 @@ export function DataTable<T>({
     : 0
 
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-card border border-border/80 bg-card shadow-card">
       {toolbar && (
-        <div className="flex flex-col gap-2 border-b border-gray-200 bg-white p-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 border-b border-border/70 bg-stone-50/50 px-4 py-3 sm:flex-row sm:items-center">
           {toolbar}
         </div>
       )}
@@ -142,13 +141,13 @@ export function DataTable<T>({
           <table className="w-full border-collapse text-sm">
             <caption className="sr-only">{ariaLabel}</caption>
             <thead>
-              <tr className="bg-gray-50">
+              <tr>
                 {columns.map((col) => (
                   <th
                     key={col.key}
                     scope="col"
                     className={cn(
-                      'px-4 py-2.5 text-xs font-semibold tracking-wide text-gray-500 uppercase',
+                      'border-b border-border/70 px-4 py-2.5 text-[11px] font-semibold tracking-wider text-stone-500 uppercase',
                       ALIGN_CELL[col.align ?? 'left'],
                       col.hideBelow && HIDE_BELOW[col.hideBelow],
                     )}
@@ -162,16 +161,21 @@ export function DataTable<T>({
             <tbody>
               {loading ? (
                 Array.from({ length: SKELETON_ROWS }).map((_, rowIndex) => (
-                  <tr key={`skeleton-${rowIndex}`} className="border-t border-gray-200">
+                  <tr key={`skeleton-${rowIndex}`}>
                     {columns.map((col) => (
                       <td
                         key={col.key}
                         className={cn(
-                          'px-4 py-3',
+                          'border-b border-border/50 px-4 py-4',
                           col.hideBelow && HIDE_BELOW[col.hideBelow],
                         )}
                       >
-                        <div className="h-3 w-3/4 animate-pulse rounded bg-gray-200" />
+                        <div
+                          className={cn(
+                            'skeleton-shimmer h-3',
+                            rowIndex % 2 === 0 ? 'w-3/4' : 'w-1/2',
+                          )}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -195,16 +199,16 @@ export function DataTable<T>({
                       }
                       tabIndex={href ? 0 : undefined}
                       className={cn(
-                        'border-t border-gray-200 transition-colors',
+                        'group border-b border-border/50 transition-colors last:border-0',
                         href &&
-                          'cursor-pointer hover:bg-gray-50 focus-visible:bg-gray-50 focus-visible:outline-none',
+                          'cursor-pointer hover:bg-primary-soft/45 focus-visible:bg-primary-soft/60 focus-visible:outline-none',
                       )}
                     >
                       {columns.map((col) => (
                         <td
                           key={col.key}
                           className={cn(
-                            'px-4 py-3 align-middle text-gray-900',
+                            'px-4 py-3.5 align-middle text-foreground',
                             ALIGN_CELL[col.align ?? 'left'],
                             col.hideBelow && HIDE_BELOW[col.hideBelow],
                             col.className,
@@ -217,7 +221,7 @@ export function DataTable<T>({
                   )
                 })
               ) : (
-                <tr className="border-t border-gray-200">
+                <tr>
                   <td colSpan={columns.length} className="p-0">
                     <EmptyState
                       bordered={false}
@@ -233,10 +237,16 @@ export function DataTable<T>({
       )}
 
       {pagination && !error && (
-        <div className="flex flex-col gap-3 border-t border-gray-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-gray-600">
-            Showing {from} to {to} of {pagination.total.toLocaleString()}{' '}
-            entries
+        <div className="flex flex-col gap-3 border-t border-border/70 bg-stone-50/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            Showing{' '}
+            <span className="font-medium text-foreground tabular-nums">
+              {from}–{to}
+            </span>{' '}
+            of{' '}
+            <span className="font-medium text-foreground tabular-nums">
+              {pagination.total.toLocaleString()}
+            </span>
           </p>
 
           <div className="flex items-center gap-4">
@@ -244,9 +254,9 @@ export function DataTable<T>({
               <div className="hidden items-center gap-2 sm:flex">
                 <label
                   htmlFor="data-table-page-size"
-                  className="text-sm text-gray-600"
+                  className="text-xs text-muted-foreground"
                 >
-                  Rows per page
+                  Rows
                 </label>
                 <select
                   id="data-table-page-size"
@@ -254,7 +264,7 @@ export function DataTable<T>({
                   onChange={(e) =>
                     pagination.onPageSizeChange?.(Number(e.target.value))
                   }
-                  className="h-8 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-700 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none"
+                  className="h-8 cursor-pointer rounded-md border border-input bg-card pr-1 pl-2 text-xs text-stone-700 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
                 >
                   {pagination.pageSizeOptions.map((size) => (
                     <option key={size} value={size}>
@@ -268,6 +278,7 @@ export function DataTable<T>({
             <div className="flex items-center gap-1">
               <Button
                 size="sm"
+                variant="ghost"
                 className="h-8 w-8 px-0"
                 aria-label="Previous page"
                 disabled={pagination.offset === 0}
@@ -284,29 +295,33 @@ export function DataTable<T>({
                 entry === 'ellipsis' ? (
                   <span
                     key={`ellipsis-${index}`}
-                    className="px-1.5 text-sm text-gray-500"
+                    className="px-1.5 text-sm text-stone-400"
                   >
                     …
                   </span>
                 ) : (
-                  <Button
+                  <button
                     key={entry}
-                    size="sm"
-                    variant={entry === page ? 'primary' : 'secondary'}
-                    className="h-8 w-8 px-0 text-sm"
-                    aria-label={`Page ${entry}`}
-                    aria-current={entry === page ? 'page' : undefined}
                     onClick={() =>
                       pagination.onChange((entry - 1) * pagination.limit)
                     }
+                    aria-label={`Page ${entry}`}
+                    aria-current={entry === page ? 'page' : undefined}
+                    className={cn(
+                      'h-8 min-w-8 rounded-md px-2 text-xs font-medium tabular-nums transition-colors',
+                      entry === page
+                        ? 'bg-primary-600 text-white'
+                        : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900',
+                    )}
                   >
                     {entry}
-                  </Button>
+                  </button>
                 ),
               )}
 
               <Button
                 size="sm"
+                variant="ghost"
                 className="h-8 w-8 px-0"
                 aria-label="Next page"
                 disabled={

@@ -1,8 +1,16 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, RotateCcw } from 'lucide-react'
+import { ArrowRight, RotateCcw } from 'lucide-react'
 
+import { Button } from '@/components/common/Button'
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  DetailRow,
+} from '@/components/common/Card'
 import { ErrorState, Loading } from '@/components/common/Loading'
+import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { useAuth } from '@/hooks/useAuth'
 import { usePayment, useReversePayment } from '@/hooks/usePayments'
@@ -21,7 +29,7 @@ export default function PaymentDetail() {
   if (payment.isLoading) return <Loading />
   if (payment.error)
     return (
-      <div className="p-6">
+      <div className="py-6">
         <ErrorState
           message={(payment.error as Error).message}
           onRetry={() => payment.refetch()}
@@ -49,24 +57,15 @@ export default function PaymentDetail() {
   }
 
   return (
-    <div className="p-4 md:p-6">
-      <Link
-        to="/payments"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to payments
-      </Link>
-
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-gray-900">
-              {formatMoney(p.amount, p.currency)}
-            </h1>
+    <div>
+      <PageHeader
+        back={{ to: '/payments', label: 'Payments' }}
+        title={formatMoney(p.amount, p.currency)}
+        badge={
+          <>
             {isReversal && (
               <StatusBadge tone="danger">
-                <RotateCcw className="mr-1 h-3 w-3" />
+                <RotateCcw className="mr-0.5 h-3 w-3" />
                 Reversal
               </StatusBadge>
             )}
@@ -75,112 +74,119 @@ export default function PaymentDetail() {
                 {formatMoney(unallocated, p.currency)} unallocated
               </StatusBadge>
             )}
-          </div>
-          <p className="mt-1 text-sm text-gray-600">
+            {unallocated <= 0 && !isReversal && (
+              <StatusBadge tone="success">Fully allocated</StatusBadge>
+            )}
+          </>
+        }
+        description={
+          <>
             {farmer.data
               ? `${farmer.data.first_name} ${farmer.data.last_name}`
               : 'Loading…'}{' '}
             · {new Date(p.paid_at).toLocaleString()}
-          </p>
-        </div>
-
-        {isAdmin && !isReversal && (
-          <button
-            onClick={doReverse}
-            disabled={reverse.isPending}
-            className="inline-flex items-center gap-2 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-          >
-            <RotateCcw className="h-4 w-4" />
-            {reverse.isPending ? 'Reversing…' : 'Reverse'}
-          </button>
-        )}
-      </div>
+          </>
+        }
+        action={
+          isAdmin &&
+          !isReversal && (
+            <Button
+              variant="danger"
+              onClick={doReverse}
+              disabled={reverse.isPending}
+            >
+              <RotateCcw className="h-4 w-4" />
+              {reverse.isPending ? 'Reversing…' : 'Reverse'}
+            </Button>
+          )
+        }
+      />
 
       {actionError && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border border-danger/20 bg-danger-soft px-3 py-2.5 text-sm text-danger-ink">
           {actionError}
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className="rounded-lg border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Payment
-          </h2>
-          <dl className="space-y-3 text-sm">
-            <Row label="Amount" value={formatMoney(p.amount, p.currency)} />
-            <Row label="Method" value={p.method.replace('_', ' ')} />
-            {p.reference && <Row label="Reference" value={p.reference} />}
-            <Row label="Paid at" value={new Date(p.paid_at).toLocaleString()} />
-            <Row label="Recorded at" value={new Date(p.recorded_at).toLocaleString()} />
-            <Row
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader title="Payment" />
+          <CardBody>
+            <dl className="space-y-3">
+            <DetailRow label="Amount" value={formatMoney(p.amount, p.currency)} />
+            <DetailRow label="Method" value={p.method.replace('_', ' ')} />
+            {p.reference && <DetailRow label="Reference" value={p.reference} />}
+            <DetailRow
+              label="Paid at"
+              value={new Date(p.paid_at).toLocaleString()}
+            />
+            <DetailRow
+              label="Recorded at"
+              value={new Date(p.recorded_at).toLocaleString()}
+            />
+            <DetailRow
               label="Unallocated"
               value={formatMoney(p.unallocated_amount, p.currency)}
             />
-            {p.notes && <Row label="Notes" value={p.notes} />}
+            {p.notes && <DetailRow label="Notes" value={p.notes} />}
             {p.reversal_of_id && (
-              <Row label="Reverses" value={p.reversal_of_id} mono />
+              <DetailRow label="Reverses" value={p.reversal_of_id} mono />
             )}
-          </dl>
-        </section>
+            </dl>
+          </CardBody>
+        </Card>
 
-        <section className="rounded-lg border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Allocations ({p.allocations.length})
-          </h2>
-          {p.allocations.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No deliveries were allocated against this payment. The full amount
-              is credit on account.
-            </p>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {p.allocations.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center justify-between gap-3 py-2 text-sm"
-                >
-                  <Link
-                    to={`/deliveries/${a.delivery_id}`}
-                    className="truncate text-primary-700 hover:text-primary-800"
+        <Card>
+          <CardHeader
+            title={`Allocations (${p.allocations.length})`}
+            description="Which deliveries this money settled."
+          />
+          <CardBody>
+            {p.allocations.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No deliveries were allocated against this payment. The full
+                amount is credit on account.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border/60">
+                {p.allocations.map((a) => (
+                  <li
+                    key={a.id}
+                    className="flex items-center justify-between gap-3 py-2.5 text-sm"
                   >
-                    Delivery {a.delivery_id.slice(0, 8)}…
-                  </Link>
-                  <span
-                    className={
-                      Number(a.amount) < 0 ? 'text-red-700' : 'text-gray-900'
-                    }
-                  >
-                    {formatMoney(a.amount, p.currency)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    <Link
+                      to={`/deliveries/${a.delivery_id}`}
+                      className="group inline-flex items-center gap-1.5 font-mono text-xs text-primary-ink hover:text-primary-ink"
+                    >
+                      Delivery {a.delivery_id.slice(0, 8)}…
+                      <ArrowRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                    </Link>
+                    <span
+                      className={
+                        Number(a.amount) < 0
+                          ? 'font-medium text-danger-ink tabular-nums'
+                          : 'font-medium text-foreground tabular-nums'
+                      }
+                    >
+                      {formatMoney(a.amount, p.currency)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
       </div>
 
       {farmer.data && (
-        <div className="mt-6">
-          <Link
-            to={`/farmers/${farmer.data.id}`}
-            className="text-sm text-primary-700 hover:text-primary-800"
-          >
-            View farmer profile →
-          </Link>
-        </div>
+        <Link
+          to={`/farmers/${farmer.data.id}`}
+          className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-primary-ink hover:text-primary-ink"
+        >
+          View farmer profile
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       )}
-    </div>
-  )
-}
-
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4">
-      <dt className="text-gray-600">{label}</dt>
-      <dd className={`text-right text-gray-900 ${mono ? 'font-mono text-xs' : ''}`}>
-        {value}
-      </dd>
     </div>
   )
 }

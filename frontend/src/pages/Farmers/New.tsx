@@ -1,9 +1,19 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { Loader2, UserPlus } from 'lucide-react'
 
 import { ApiError } from '@/lib/api'
 import { useCreateFarmer } from '@/hooks/useFarmers'
+import { Button, ButtonLink } from '@/components/common/Button'
+import { Card, CardBody, CardFooter } from '@/components/common/Card'
+import {
+  Field,
+  FieldGroup,
+  FormError,
+  TextArea,
+  TextInput,
+} from '@/components/common/Form'
+import { PageHeader } from '@/components/common/PageHeader'
 
 export default function NewFarmer() {
   const navigate = useNavigate()
@@ -56,153 +66,140 @@ export default function NewFarmer() {
   }
 
   return (
-    <div className="p-4 md:p-6">
-      <Link
-        to="/farmers"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to farmers
-      </Link>
-
-      <h1 className="text-2xl font-semibold text-gray-900">Register farmer</h1>
-      <p className="mt-1 text-sm text-gray-600">
-        Phone will be normalized to international format (E.164).
-      </p>
-
-      <form
-        onSubmit={onSubmit}
-        className="mt-6 max-w-xl space-y-4 rounded-lg border border-gray-200 bg-white p-6"
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="First name"
-            required
-            value={form.first_name}
-            onChange={(v) => set('first_name', v)}
-            autoComplete="given-name"
-          />
-          <Field
-            label="Last name"
-            required
-            value={form.last_name}
-            onChange={(v) => set('last_name', v)}
-            autoComplete="family-name"
-          />
-        </div>
-
-        <Field
-          label="Phone"
-          required
-          value={form.phone}
-          onChange={(v) => set('phone', v)}
-          placeholder="0712345678 or +254712345678"
-          inputMode="tel"
-          autoComplete="tel"
-          hint="Kenyan local format accepted; stored as +254…"
-        />
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="National ID"
-            value={form.national_id}
-            onChange={(v) => set('national_id', v)}
-            hint="Optional"
-          />
-          <Field
-            label="Date of birth"
-            type="date"
-            value={form.date_of_birth}
-            onChange={(v) => set('date_of_birth', v)}
-            hint="Optional"
-          />
-        </div>
-
-        <Field
-          label="Location"
-          value={form.location}
-          onChange={(v) => set('location', v)}
-          placeholder="Kisumu Central"
-          hint="Free text — a note for clerks, not used in reporting"
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Notes
-          </label>
-          <textarea
-            value={form.notes}
-            onChange={(e) => set('notes', e.target.value)}
-            rows={3}
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-          />
-        </div>
-
-        {error && (
-          <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="flex gap-3 pt-2">
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-60"
-          >
-            {create.isPending ? 'Registering…' : 'Register farmer'}
-          </button>
-          <Link
-            to="/farmers"
-            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Cancel
-          </Link>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-// Local form field component, kept inside the file because it's only used here.
-function Field({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  required,
-  placeholder,
-  hint,
-  inputMode,
-  autoComplete,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  type?: string
-  required?: boolean
-  placeholder?: string
-  hint?: string
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
-  autoComplete?: string
-}) {
-  return (
     <div>
-      <label className="block text-sm font-medium text-gray-700">
-        {label}
-        {required && <span className="ml-0.5 text-red-500">*</span>}
-      </label>
-      <input
-        type={type}
-        value={value}
-        required={required}
-        placeholder={placeholder}
-        inputMode={inputMode}
-        autoComplete={autoComplete}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+      <PageHeader
+        title="Register farmer"
+        back={{ to: '/farmers', label: 'Farmers' }}
+        description="Phone numbers are normalized to international format (E.164) before saving."
       />
-      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
+
+      <form onSubmit={onSubmit} className="max-w-2xl">
+        <Card>
+          <CardBody className="space-y-6 p-5 sm:p-6">
+            <FieldGroup
+              title="Identity"
+              description="The name the farmer is known by at the collection point."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="First name" htmlFor="first_name" required>
+                  <TextInput
+                    id="first_name"
+                    required
+                    autoComplete="given-name"
+                    value={form.first_name}
+                    onChange={(e) => set('first_name', e.target.value)}
+                  />
+                </Field>
+                <Field label="Last name" htmlFor="last_name" required>
+                  <TextInput
+                    id="last_name"
+                    required
+                    autoComplete="family-name"
+                    value={form.last_name}
+                    onChange={(e) => set('last_name', e.target.value)}
+                  />
+                </Field>
+              </div>
+
+              <Field
+                label="Phone"
+                htmlFor="phone"
+                required
+                hint="Kenyan local format accepted; stored as +254…"
+              >
+                <TextInput
+                  id="phone"
+                  required
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="0712345678 or +254712345678"
+                  value={form.phone}
+                  onChange={(e) => set('phone', e.target.value)}
+                />
+              </Field>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="National ID" htmlFor="national_id" hint="Optional">
+                  <TextInput
+                    id="national_id"
+                    value={form.national_id}
+                    onChange={(e) => set('national_id', e.target.value)}
+                  />
+                </Field>
+                <Field label="Date of birth" htmlFor="dob" hint="Optional">
+                  <TextInput
+                    id="dob"
+                    type="date"
+                    value={form.date_of_birth}
+                    onChange={(e) => set('date_of_birth', e.target.value)}
+                  />
+                </Field>
+              </div>
+            </FieldGroup>
+
+            <div className="border-t border-border/60 pt-6">
+              <FieldGroup
+                title="Context"
+                description="Helps clerks find the right person and keeps notes out of the ledger."
+              >
+                <Field
+                  label="Location"
+                  htmlFor="location"
+                  hint="Free text — a note for clerks, not used in reporting"
+                >
+                  <TextInput
+                    id="location"
+                    placeholder="Kisumu Central"
+                    value={form.location}
+                    onChange={(e) => set('location', e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Notes" htmlFor="notes">
+                  <TextArea
+                    id="notes"
+                    rows={3}
+                    value={form.notes}
+                    onChange={(e) => set('notes', e.target.value)}
+                    placeholder="Anything the next clerk should know."
+                  />
+                </Field>
+              </FieldGroup>
+            </div>
+
+            {error && <FormError>{error}</FormError>}
+          </CardBody>
+
+          <CardFooter className="justify-end">
+            <Link
+              to="/farmers"
+              className="rounded-lg px-3 py-2 text-sm font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+            >
+              Cancel
+            </Link>
+            <Button type="submit" variant="primary" disabled={create.isPending}>
+              {create.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="h-4 w-4" />
+              )}
+              {create.isPending ? 'Registering…' : 'Register farmer'}
+            </Button>
+          </CardFooter>
+        </Card>
+
+        <p className="mt-4 text-xs text-muted-foreground">
+          Need the ledger now?{' '}
+          <ButtonLink
+            to="/farmers"
+            variant="ghost"
+            size="sm"
+            className="h-auto px-1 py-0 text-xs text-primary-ink hover:bg-transparent hover:underline"
+          >
+            Return to the list
+          </ButtonLink>
+        </p>
+      </form>
     </div>
   )
 }

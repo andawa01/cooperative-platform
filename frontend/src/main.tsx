@@ -5,6 +5,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import App from './App'
 import './index.css'
+import { applyTheme, resolveTheme } from './lib/theme'
+
+// Applied before React mounts so the first render already has the right
+// tokens. index.html does the same thing even earlier to avoid a flash of
+// light UI; this keeps the DOM and React state consistent if they disagree.
+applyTheme(resolveTheme())
 
 const queryClient = new QueryClient({
   defaultOptions: {

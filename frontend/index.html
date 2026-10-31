@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>ShambaTrack</title>
+    <script>
+      // Runs before the first paint: picks the saved theme, falling back to the
+      // OS preference, and sets color-scheme so native widgets match. Without
+      // this, a dark-mode user sees a white flash while the bundle loads.
+      (function () {
+        try {
+          var stored = localStorage.getItem('shambatrack_theme')
+          var dark = stored
+            ? stored === 'dark'
+            : window.matchMedia('(prefers-color-scheme: dark)').matches
+          if (dark) document.documentElement.classList.add('dark')
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

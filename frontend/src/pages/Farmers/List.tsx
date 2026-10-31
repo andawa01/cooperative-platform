@@ -5,6 +5,7 @@ import { ButtonLink } from '@/components/common/Button'
 import { DataTable, type DataColumn } from '@/components/common/DataTable'
 import { PageHeader } from '@/components/common/PageHeader'
 import { FarmerStatusBadge } from '@/components/common/StatusBadge'
+import { Avatar } from '@/components/common/Avatar'
 import { useFarmers, type FarmerListParams } from '@/hooks/useFarmers'
 import type { Farmer } from '@/types/api'
 
@@ -16,13 +17,16 @@ const columns: DataColumn<Farmer>[] = [
     key: 'name',
     header: 'Farmer',
     render: (f) => (
-      <div className="min-w-0">
-        <div className="truncate font-medium text-gray-900">
-          {f.first_name} {f.last_name}
-        </div>
-        {/* Phone repeats under the name only where the phone column is hidden. */}
-        <div className="mt-0.5 truncate text-xs text-gray-500 tabular-nums md:hidden">
-          {f.phone}
+      <div className="flex min-w-0 items-center gap-3">
+        <Avatar first={f.first_name} last={f.last_name} />
+        <div className="min-w-0">
+          <div className="truncate font-medium text-foreground">
+            {f.first_name} {f.last_name}
+          </div>
+          {/* Phone repeats under the name only where the phone column is hidden. */}
+          <div className="mt-0.5 truncate text-xs text-muted-foreground tabular-nums md:hidden">
+            {f.phone}
+          </div>
         </div>
       </div>
     ),
@@ -32,16 +36,14 @@ const columns: DataColumn<Farmer>[] = [
     header: 'Phone',
     hideBelow: 'md',
     render: (f) => (
-      <span className="text-gray-700 tabular-nums">{f.phone}</span>
+      <span className="text-stone-600 tabular-nums">{f.phone}</span>
     ),
   },
   {
     key: 'location',
     header: 'Location',
     hideBelow: 'lg',
-    render: (f) => (
-      <span className="text-gray-700">{f.location ?? '—'}</span>
-    ),
+    render: (f) => <span className="text-stone-600">{f.location ?? '—'}</span>,
   },
   {
     key: 'status',
@@ -76,7 +78,7 @@ export default function FarmersList() {
   const { data, isLoading, error, refetch } = useFarmers(params)
 
   return (
-    <div className="p-4 md:p-6">
+    <div>
       <PageHeader
         title="Farmers"
         description={
@@ -85,7 +87,11 @@ export default function FarmersList() {
             : 'Loading farmers…'
         }
         action={
-          <ButtonLink to="/farmers/new" variant="primary" icon={<Plus className="h-4 w-4" />}>
+          <ButtonLink
+            to="/farmers/new"
+            variant="primary"
+            icon={<Plus className="h-4 w-4" />}
+          >
             Register farmer
           </ButtonLink>
         }
@@ -110,13 +116,13 @@ export default function FarmersList() {
         toolbar={
           <>
             <div className="relative flex-1 sm:max-w-xs">
-              <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-stone-400" />
               <input
                 type="search"
                 placeholder="Search by name or phone…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-md border border-gray-300 bg-white py-2 pr-3 pl-9 text-sm shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none"
+                className="h-9 w-full rounded-lg border border-input bg-card pr-3 pl-9 text-sm shadow-xs transition-[border-color,box-shadow] placeholder:text-stone-400 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/12 focus:outline-none"
               />
             </div>
             <select
@@ -126,7 +132,7 @@ export default function FarmersList() {
                 setOffset(0)
               }}
               aria-label="Filter by status"
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none"
+              className="h-9 cursor-pointer rounded-lg border border-input bg-card px-3 text-sm text-stone-700 shadow-xs focus:border-primary-500 focus:ring-4 focus:ring-primary-500/12 focus:outline-none"
             >
               <option value="">All statuses</option>
               <option value="active">Active</option>

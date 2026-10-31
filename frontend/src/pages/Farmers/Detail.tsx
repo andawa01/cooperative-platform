@@ -1,9 +1,25 @@
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, FileText, Archive } from 'lucide-react'
 import { useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import {
+  Archive,
+  Banknote,
+  CheckCircle2,
+  FileText,
+  Package,
+  TriangleAlert,
+} from 'lucide-react'
 
+import { Button, ButtonLink } from '@/components/common/Button'
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  DetailRow,
+} from '@/components/common/Card'
 import { ErrorState, Loading } from '@/components/common/Loading'
+import { PageHeader } from '@/components/common/PageHeader'
 import { FarmerStatusBadge } from '@/components/common/StatusBadge'
+import { Avatar } from '@/components/common/Avatar'
 import {
   useArchiveFarmer,
   useFarmer,
@@ -25,7 +41,7 @@ export default function FarmerDetail() {
   if (farmer.isLoading) return <Loading />
   if (farmer.error)
     return (
-      <div className="p-6">
+      <div className="py-6">
         <ErrorState
           message={(farmer.error as Error).message}
           onRetry={() => farmer.refetch()}
@@ -58,158 +74,232 @@ export default function FarmerDetail() {
   }
 
   return (
-    <div className="p-4 md:p-6">
-      <Link
-        to="/farmers"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to farmers
-      </Link>
-
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-gray-900">
-              {f.first_name} {f.last_name}
-            </h1>
-            <FarmerStatusBadge status={f.status} />
-          </div>
-          <p className="mt-1 text-sm text-gray-600">{f.phone}</p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Link
-            to={`/farmers/${f.id}/statement`}
-            className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            <FileText className="h-4 w-4" />
-            Statement
-          </Link>
-          {isAdmin && canVerify && (
-            <button
-              onClick={doVerify}
-              disabled={verify.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
+    <div>
+      <PageHeader
+        back={{ to: '/farmers', label: 'Farmers' }}
+        title={`${f.first_name} ${f.last_name}`}
+        badge={<FarmerStatusBadge status={f.status} />}
+        description={f.phone}
+        action={
+          <>
+            <ButtonLink
+              to={`/farmers/${f.id}/statement`}
+              icon={<FileText className="h-4 w-4" />}
             >
-              <CheckCircle2 className="h-4 w-4" />
-              {verify.isPending ? 'Verifying…' : 'Verify'}
-            </button>
-          )}
-          {isAdmin && canArchive && (
-            <button
-              onClick={doArchive}
-              disabled={archive.isPending}
-              className="inline-flex items-center gap-2 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-            >
-              <Archive className="h-4 w-4" />
-              {archive.isPending ? 'Archiving…' : 'Archive'}
-            </button>
-          )}
-        </div>
-      </div>
+              Statement
+            </ButtonLink>
+            {isAdmin && canVerify && (
+              <Button
+                variant="primary"
+                onClick={doVerify}
+                disabled={verify.isPending}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {verify.isPending ? 'Verifying…' : 'Verify'}
+              </Button>
+            )}
+            {isAdmin && canArchive && (
+              <Button
+                variant="danger"
+                onClick={doArchive}
+                disabled={archive.isPending}
+              >
+                <Archive className="h-4 w-4" />
+                {archive.isPending ? 'Archiving…' : 'Archive'}
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {actionError && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border border-danger/20 bg-danger-soft px-3 py-2.5 text-sm text-danger-ink">
           {actionError}
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Profile card */}
-        <section className="rounded-lg border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Profile
-          </h2>
-          <dl className="space-y-3 text-sm">
-            <Row label="National ID" value={f.national_id ?? '—'} />
-            <Row label="Date of birth" value={f.date_of_birth ?? '—'} />
-            <Row label="Location" value={f.location ?? '—'} />
-            <Row
-              label="Verified"
-              value={f.verified_at ? new Date(f.verified_at).toLocaleString() : 'No'}
-            />
-            <Row label="Registered" value={new Date(f.created_at).toLocaleString()} />
-            {f.notes && (
-              <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Notes
-                </dt>
-                <dd className="mt-1 whitespace-pre-wrap text-gray-800">
-                  {f.notes}
-                </dd>
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Balance — the number that matters most on this screen */}
+        <Card className="lg:col-span-3">
+          <CardHeader
+            title="Financial position"
+            description="Derived from deliveries and payments — there is no stored balance to drift."
+          />
+          <CardBody>
+            {balance.isLoading && <Loading label="Loading balance…" />}
+            {balance.error && (
+              <ErrorState message={(balance.error as Error).message} />
+            )}
+            {balance.data && (
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-danger/15 bg-danger-soft/60 p-4">
+                  <div className="text-[11px] font-semibold tracking-wider text-danger-ink/80 uppercase">
+                    Outstanding debt
+                  </div>
+                  <div className="mt-1.5 text-[26px] leading-none font-semibold text-danger-ink tabular-nums">
+                    {formatMoney(
+                      balance.data.outstanding_debt,
+                      balance.data.currency,
+                    )}
+                  </div>
+                  <div className="mt-1.5 text-xs text-danger-ink/75">
+                    Still owed for deliveries
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-success/20 bg-success-soft/70 p-4">
+                  <div className="text-[11px] font-semibold tracking-wider text-success-ink/80 uppercase">
+                    Available credit
+                  </div>
+                  <div className="mt-1.5 text-[26px] leading-none font-semibold text-success-ink tabular-nums">
+                    {formatMoney(
+                      balance.data.available_credit,
+                      balance.data.currency,
+                    )}
+                  </div>
+                  <div className="mt-1.5 text-xs text-success-ink/75">
+                    Held on the farmer's behalf
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border bg-stone-50 p-4">
+                  <div className="text-[11px] font-semibold tracking-wider text-stone-500 uppercase">
+                    Allocated to deliveries
+                  </div>
+                  <div className="mt-1.5 text-[26px] leading-none font-semibold text-foreground tabular-nums">
+                    {formatMoney(
+                      balance.data.allocated_to_deliveries,
+                      balance.data.currency,
+                    )}
+                  </div>
+                  <div className="mt-1.5 text-xs text-muted-foreground">
+                    Already counted in debt
+                  </div>
+                </div>
               </div>
             )}
-          </dl>
-        </section>
 
-        {/* Balance card */}
-        <section className="rounded-lg border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Financial position
-          </h2>
-          {balance.isLoading && <Loading label="Loading balance…" />}
-          {balance.error && (
-            <ErrorState message={(balance.error as Error).message} />
-          )}
-          {balance.data && (
-            <dl className="space-y-3 text-sm">
-              <div className="flex items-baseline justify-between">
-                <dt className="text-gray-600">Outstanding debt</dt>
-                <dd className="text-lg font-semibold text-gray-900">
-                  {formatMoney(balance.data.outstanding_debt, balance.data.currency)}
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <dt className="text-gray-600">Available credit</dt>
-                <dd className="text-lg font-semibold text-green-700">
-                  {formatMoney(balance.data.available_credit, balance.data.currency)}
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <dt className="text-gray-600">Allocated to deliveries</dt>
-                <dd className="text-gray-900">
-                  {formatMoney(
-                    balance.data.allocated_to_deliveries,
-                    balance.data.currency,
-                  )}
-                </dd>
-              </div>
-              {balance.data.pending_valuation_deliveries > 0 && (
-                <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-800">
+            {balance.data && balance.data.pending_valuation_deliveries > 0 && (
+              <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2.5">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning-ink" />
+                <p className="text-xs text-warning-ink">
                   {balance.data.pending_valuation_deliveries} delivery
-                  {balance.data.pending_valuation_deliveries === 1 ? '' : 'ies'} awaiting
-                  valuation
+                  {balance.data.pending_valuation_deliveries === 1 ? '' : 'ies'}{' '}
+                  awaiting valuation — not included in the figures above.
+                </p>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Profile */}
+        <Card className="lg:col-span-2">
+          <CardHeader title="Profile" />
+          <CardBody>
+            <div className="mb-4 flex items-center gap-3 border-b border-border/60 pb-4">
+              <Avatar
+                first={f.first_name}
+                last={f.last_name}
+                className="h-11 w-11 text-sm"
+              />
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-foreground">
+                  {f.first_name} {f.last_name}
                 </div>
-              )}
+                <div className="truncate text-xs text-muted-foreground tabular-nums">
+                  {f.phone}
+                </div>
+              </div>
+            </div>
+
+            <dl className="space-y-3">
+              <DetailRow label="National ID" value={f.national_id ?? '—'} />
+              <DetailRow label="Date of birth" value={f.date_of_birth ?? '—'} />
+              <DetailRow label="Location" value={f.location ?? '—'} />
+              <DetailRow
+                label="Verified"
+                value={
+                  f.verified_at
+                    ? new Date(f.verified_at).toLocaleString()
+                    : 'Not verified'
+                }
+              />
+              <DetailRow
+                label="Registered"
+                value={new Date(f.created_at).toLocaleString()}
+              />
             </dl>
-          )}
-        </section>
-      </div>
 
-      <div className="mt-6 flex flex-wrap gap-3">
-        <Link
-          to={`/deliveries/new?farmer_id=${f.id}`}
-          className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
-        >
-          Record delivery
-        </Link>
-        <Link
-          to={`/payments/new?farmer_id=${f.id}`}
-          className="rounded-md border border-primary-300 bg-white px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
-        >
-          Record payment
-        </Link>
-      </div>
-    </div>
-  )
-}
+            {f.notes && (
+              <div className="mt-4 rounded-lg bg-stone-50 p-3">
+                <div className="text-[11px] font-semibold tracking-wider text-stone-500 uppercase">
+                  Notes
+                </div>
+                <p className="mt-1 text-sm whitespace-pre-wrap text-stone-700">
+                  {f.notes}
+                </p>
+              </div>
+            )}
+          </CardBody>
+        </Card>
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4">
-      <dt className="text-gray-600">{label}</dt>
-      <dd className="text-right text-gray-900">{value}</dd>
+        {/* Quick actions */}
+        <Card>
+          <CardHeader title="Next actions" />
+          <CardBody className="space-y-2.5">
+            <Link
+              to={`/deliveries/new?farmer_id=${f.id}`}
+              className="group flex items-center gap-3 rounded-lg border border-border/80 p-3 transition-colors hover:border-primary-300 hover:bg-primary-soft/40"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft text-primary-ink">
+                <Package className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">
+                  Record delivery
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Value is snapshotted at today's rate
+                </span>
+              </span>
+            </Link>
+
+            <Link
+              to={`/payments/new?farmer_id=${f.id}`}
+              className="group flex items-center gap-3 rounded-lg border border-border/80 p-3 transition-colors hover:border-primary-300 hover:bg-primary-soft/40"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-success-soft text-success-ink">
+                <Banknote className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">
+                  Record payment
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Allocated to oldest debt first
+                </span>
+              </span>
+            </Link>
+
+            <Link
+              to={`/farmers/${f.id}/statement`}
+              className="group flex items-center gap-3 rounded-lg border border-border/80 p-3 transition-colors hover:border-primary-300 hover:bg-primary-soft/40"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-stone-100 text-stone-600">
+                <FileText className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">
+                  Open statement
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Every movement, in date order
+                </span>
+              </span>
+            </Link>
+          </CardBody>
+        </Card>
+      </div>
     </div>
   )
 }
