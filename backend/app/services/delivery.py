@@ -306,6 +306,11 @@ def value_delivery(
         delivery.rate_snapshot = rate.rate_per_unit
         delivery.currency_snapshot = rate.currency
 
+        # Flush, do NOT refresh. Sessions here run with autoflush=False, so a
+        # `db.refresh()` at this point would SELECT the still-unflushed row and
+        # expire the assignment above — silently discarding the valuation.
+        db.flush()
+
         audit.record(
             db,
             actor_id=actor.id,
@@ -322,8 +327,6 @@ def value_delivery(
                 "delivered_at": delivery.delivered_at.isoformat(),
             },
         )
-
-        db.refresh(delivery)
 
     return delivery
 

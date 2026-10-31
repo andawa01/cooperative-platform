@@ -236,9 +236,7 @@ class TestPaymentReversal:
 
         # The reversal payment should carry a negative allocation mirroring
         # the original, confirming allocations are reversed.
-        reversal_allocs = payment_service.list_allocations_for_payment(
-            db, reversal.id
-        )
+        reversal_allocs = payment_service.list_allocations_for_payment(db, reversal.id)
         assert len(reversal_allocs) == 1
         assert reversal_allocs[0].amount == Decimal("-3000")
         assert reversal_allocs[0].reversal_of_id is not None
@@ -380,9 +378,7 @@ class TestIdempotency:
                     farmer.id,
                     Decimal("3000"),  # different amount → different fingerprint
                     allocations=[
-                        AllocationInput(
-                            delivery_id=delivery.id, amount=Decimal("3000")
-                        )
+                        AllocationInput(delivery_id=delivery.id, amount=Decimal("3000"))
                     ],
                     idempotency_key=idem_key,
                 ),
@@ -456,9 +452,7 @@ class TestOverAllocation:
                     farmer.id,
                     Decimal("3000"),
                     allocations=[
-                        AllocationInput(
-                            delivery_id=delivery.id, amount=Decimal("4000")
-                        )
+                        AllocationInput(delivery_id=delivery.id, amount=Decimal("4000"))
                     ],
                 ),
                 clerk,
@@ -474,9 +468,7 @@ class TestDuplicateAllocation:
     """Try to allocate the same delivery twice in one payment, verify
     DuplicateAllocationDelivery is raised."""
 
-    def test_duplicate_allocation_rejected(
-        self, db, clerk, farmer, produce_line, rate
-    ):
+    def test_duplicate_allocation_rejected(self, db, clerk, farmer, produce_line, rate):
         # --- Delivery ---
         delivery = delivery_service.record_delivery(
             db, _delivery(farmer.id, produce_line.id), clerk

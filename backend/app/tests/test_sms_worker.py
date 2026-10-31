@@ -28,7 +28,6 @@ from app.services import payment as payment_service
 from app.services.sms_gateway import GatewayResult
 from app.workers import sms_worker
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -223,9 +222,7 @@ def test_promote_due_retries_future():
 # ---------------------------------------------------------------------------
 
 
-def test_process_already_sent_skip(
-    db, worker_session, farmer, produce_line, clerk
-):
+def test_process_already_sent_skip(db, worker_session, farmer, produce_line, clerk):
     """A notification already marked 'sent' is skipped — the gateway is not
     called again."""
     n = _seed_delivery_notification(db, farmer, produce_line, clerk)
