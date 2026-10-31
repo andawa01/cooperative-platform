@@ -1,8 +1,16 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, RefreshCw } from 'lucide-react'
+import { ArrowRight, MessageSquare, RefreshCw } from 'lucide-react'
 
+import { Button } from '@/components/common/Button'
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  DetailRow,
+} from '@/components/common/Card'
 import { ErrorState, Loading } from '@/components/common/Loading'
+import { PageHeader } from '@/components/common/PageHeader'
 import { NotificationStatusBadge } from '@/components/common/StatusBadge'
 import { useAuth } from '@/hooks/useAuth'
 import { useNotification, useRetryNotification } from '@/hooks/useNotifications'
@@ -19,7 +27,7 @@ export default function NotificationDetail() {
   if (notif.isLoading) return <Loading />
   if (notif.error)
     return (
-      <div className="p-6">
+      <div className="py-6">
         <ErrorState
           message={(notif.error as Error).message}
           onRetry={() => notif.refetch()}
@@ -40,114 +48,98 @@ export default function NotificationDetail() {
   }
 
   return (
-    <div className="p-4 md:p-6">
-      <Link
-        to="/notifications"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to notifications
-      </Link>
-
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-gray-900">
-              {n.recipient}
-            </h1>
-            <NotificationStatusBadge status={n.status} />
-          </div>
-          <p className="mt-1 text-sm text-gray-600">
-            {new Date(n.created_at).toLocaleString()}
-          </p>
-        </div>
-
-        {isAdmin &&
-          (n.status === 'failed' || n.status === 'queued_redis_unreachable') && (
-            <button
+    <div>
+      <PageHeader
+        back={{ to: '/notifications', label: 'Notifications' }}
+        title={n.recipient}
+        badge={<NotificationStatusBadge status={n.status} />}
+        description={new Date(n.created_at).toLocaleString()}
+        action={
+          isAdmin &&
+          (n.status === 'failed' ||
+            n.status === 'queued_redis_unreachable') && (
+            <Button
+              variant="primary"
               onClick={doRetry}
               disabled={retry.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
             >
               <RefreshCw className="h-4 w-4" />
               {retry.isPending ? 'Retrying…' : 'Retry send'}
-            </button>
-          )}
-      </div>
+            </Button>
+          )
+        }
+      />
 
       {actionError && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border border-danger/20 bg-danger-soft px-3 py-2.5 text-sm text-danger-ink">
           {actionError}
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className="rounded-lg border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Message
-          </h2>
-          <p className="whitespace-pre-wrap text-sm text-gray-900">
-            {n.content}
-          </p>
-        </section>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader title="Message" />
+          <CardBody>
+            <div className="flex items-start gap-3 rounded-xl bg-stone-50 p-4">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-card text-stone-400 ring-1 ring-border">
+                <MessageSquare className="h-4 w-4" />
+              </span>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
+                {n.content}
+              </p>
+            </div>
+          </CardBody>
+        </Card>
 
-        <section className="rounded-lg border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Dispatch
-          </h2>
-          <dl className="space-y-3 text-sm">
-            <Row label="Channel" value={n.channel.toUpperCase()} />
-            <Row label="Template" value={n.template.replace('_', ' ')} />
-            <Row label="Attempts" value={String(n.attempts)} />
-            <Row
+        <Card>
+          <CardHeader title="Dispatch" />
+          <CardBody>
+            <dl className="space-y-3">
+            <DetailRow label="Channel" value={n.channel.toUpperCase()} />
+            <DetailRow label="Template" value={n.template.replace('_', ' ')} />
+            <DetailRow label="Attempts" value={String(n.attempts)} />
+            <DetailRow
               label="Sent at"
               value={n.sent_at ? new Date(n.sent_at).toLocaleString() : '—'}
             />
             {n.last_error && (
-              <Row label="Last error" value={n.last_error} />
+              <DetailRow label="Last error" value={n.last_error} />
             )}
-            {farmer.data && (
-              <div className="pt-2">
+            </dl>
+
+            <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
+              {farmer.data && (
                 <Link
                   to={`/farmers/${farmer.data.id}`}
-                  className="text-sm text-primary-700 hover:text-primary-800"
+                  className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm font-medium text-primary-ink transition-colors hover:bg-primary-soft/50 hover:text-primary-ink"
                 >
-                  View farmer: {farmer.data.first_name} {farmer.data.last_name} →
+                  {farmer.data.first_name} {farmer.data.last_name}
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
-              </div>
-            )}
-            {n.related_entity_type === 'delivery' && n.related_entity_id && (
-              <div>
-                <Link
-                  to={`/deliveries/${n.related_entity_id}`}
-                  className="text-sm text-primary-700 hover:text-primary-800"
-                >
-                  View delivery →
-                </Link>
-              </div>
-            )}
-            {n.related_entity_type === 'payment' && n.related_entity_id && (
-              <div>
+              )}
+              {n.related_entity_type === 'delivery' &&
+                n.related_entity_id && (
+                  <Link
+                    to={`/deliveries/${n.related_entity_id}`}
+                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm font-medium text-primary-ink transition-colors hover:bg-primary-soft/50 hover:text-primary-ink"
+                  >
+                    View delivery
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                )}
+              {n.related_entity_type === 'payment' && n.related_entity_id && (
                 <Link
                   to={`/payments/${n.related_entity_id}`}
-                  className="text-sm text-primary-700 hover:text-primary-800"
+                  className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm font-medium text-primary-ink transition-colors hover:bg-primary-soft/50 hover:text-primary-ink"
                 >
-                  View payment →
+                  View payment
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
-              </div>
-            )}
-          </dl>
-        </section>
+              )}
+            </div>
+          </CardBody>
+        </Card>
       </div>
-    </div>
-  )
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4">
-      <dt className="text-gray-600">{label}</dt>
-      <dd className="text-right text-gray-900">{value}</dd>
     </div>
   )
 }

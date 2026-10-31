@@ -26,7 +26,7 @@ const columns: DataColumn<Delivery>[] = [
     header: 'Delivered',
     hideBelow: 'md',
     render: (d) => (
-      <span className="text-gray-700">
+      <span className="text-stone-600 tabular-nums">
         {new Date(d.delivered_at).toLocaleDateString()}
       </span>
     ),
@@ -36,8 +36,8 @@ const columns: DataColumn<Delivery>[] = [
     header: 'Farmer',
     render: (d) => (
       <div className="min-w-0">
-        <div className="truncate font-medium text-gray-900">{d.farmer_name}</div>
-        <div className="mt-0.5 truncate text-xs text-gray-500 md:hidden">
+        <div className="truncate font-medium text-foreground">{d.farmer_name}</div>
+        <div className="mt-0.5 truncate text-xs text-muted-foreground md:hidden">
           {new Date(d.delivered_at).toLocaleDateString()} ·{' '}
           {d.produce_line_name}
         </div>
@@ -48,9 +48,7 @@ const columns: DataColumn<Delivery>[] = [
     key: 'produce',
     header: 'Produce line',
     hideBelow: 'md',
-    render: (d) => (
-      <span className="text-gray-700">{d.produce_line_name}</span>
-    ),
+    render: (d) => <span className="text-stone-600">{d.produce_line_name}</span>,
   },
   {
     key: 'quantity',
@@ -60,7 +58,9 @@ const columns: DataColumn<Delivery>[] = [
     render: (d) => (
       <span
         className={
-          d.reversal_of_id ? 'font-medium text-red-700' : 'text-gray-900'
+          d.reversal_of_id
+            ? 'font-medium text-danger-ink'
+            : 'text-foreground'
         }
       >
         {formatQuantity(d.quantity)}
@@ -73,11 +73,11 @@ const columns: DataColumn<Delivery>[] = [
     align: 'right',
     render: (d) =>
       d.amount === null ? (
-        <span className="text-gray-400">—</span>
+        <span className="text-stone-300">—</span>
       ) : (
         <span
           className={`font-medium ${
-            Number(d.amount) < 0 ? 'text-red-700' : 'text-gray-900'
+            Number(d.amount) < 0 ? 'text-danger-ink' : 'text-foreground'
           }`}
         >
           {formatMoney(d.amount, d.currency_snapshot)}
@@ -117,7 +117,7 @@ export default function DeliveriesList() {
   })
 
   return (
-    <div className="p-4 md:p-6">
+    <div>
       <PageHeader
         title="Deliveries"
         description={
@@ -153,7 +153,7 @@ export default function DeliveriesList() {
         }}
         toolbar={
           <>
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-stone-600">
               <input
                 type="checkbox"
                 checked={unvaluedOnly}
@@ -161,11 +161,11 @@ export default function DeliveriesList() {
                   setUnvaluedOnly(e.target.checked)
                   setOffset(0)
                 }}
-                className="h-4 w-4 rounded border-gray-300"
+                className="h-3.5 w-3.5 rounded border-stone-300 accent-primary-600"
               />
               Pending valuation only
             </label>
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-stone-600">
               <input
                 type="checkbox"
                 checked={includeReversals}
@@ -173,7 +173,7 @@ export default function DeliveriesList() {
                   setIncludeReversals(e.target.checked)
                   setOffset(0)
                 }}
-                className="h-4 w-4 rounded border-gray-300"
+                className="h-3.5 w-3.5 rounded border-stone-300 accent-primary-600"
               />
               Include reversals
             </label>

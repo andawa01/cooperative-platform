@@ -24,7 +24,7 @@ const columns: DataColumn<Payment>[] = [
     header: 'Paid',
     hideBelow: 'sm',
     render: (p) => (
-      <span className="text-gray-700">
+      <span className="text-stone-600 tabular-nums">
         {new Date(p.paid_at).toLocaleDateString()}
       </span>
     ),
@@ -34,8 +34,8 @@ const columns: DataColumn<Payment>[] = [
     header: 'Farmer',
     render: (p) => (
       <div className="min-w-0">
-        <div className="truncate font-medium text-gray-900">{p.farmer_name}</div>
-        <div className="mt-0.5 truncate text-xs text-gray-500 sm:hidden">
+        <div className="truncate font-medium text-foreground">{p.farmer_name}</div>
+        <div className="mt-0.5 truncate text-xs text-muted-foreground sm:hidden">
           {new Date(p.paid_at).toLocaleDateString()} ·{' '}
           {METHOD_LABELS[p.method] ?? p.method}
         </div>
@@ -47,7 +47,7 @@ const columns: DataColumn<Payment>[] = [
     header: 'Method',
     hideBelow: 'md',
     render: (p) => (
-      <span className="text-gray-700">{METHOD_LABELS[p.method] ?? p.method}</span>
+      <span className="text-stone-600">{METHOD_LABELS[p.method] ?? p.method}</span>
     ),
   },
   {
@@ -55,7 +55,9 @@ const columns: DataColumn<Payment>[] = [
     header: 'Reference',
     hideBelow: 'lg',
     render: (p) => (
-      <span className="text-xs text-gray-600">{p.reference ?? '—'}</span>
+      <span className="font-mono text-xs text-muted-foreground">
+        {p.reference ?? '—'}
+      </span>
     ),
   },
   {
@@ -65,7 +67,7 @@ const columns: DataColumn<Payment>[] = [
     render: (p) => (
       <span
         className={`font-medium ${
-          Number(p.amount) < 0 ? 'text-red-700' : 'text-gray-900'
+          Number(p.amount) < 0 ? 'text-danger-ink' : 'text-foreground'
         }`}
       >
         {formatMoney(p.amount, p.currency)}
@@ -99,7 +101,7 @@ export default function PaymentsList() {
   })
 
   return (
-    <div className="p-4 md:p-6">
+    <div>
       <PageHeader
         title="Payments"
         description={
@@ -132,7 +134,7 @@ export default function PaymentsList() {
           description: 'Record the first payment to get started.',
         }}
         toolbar={
-          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-stone-600">
             <input
               type="checkbox"
               checked={includeReversals}
@@ -140,7 +142,7 @@ export default function PaymentsList() {
                 setIncludeReversals(e.target.checked)
                 setOffset(0)
               }}
-              className="h-4 w-4 rounded border-gray-300"
+              className="h-3.5 w-3.5 rounded border-stone-300 accent-primary-600"
             />
             Include reversals
           </label>

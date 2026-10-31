@@ -8,9 +8,15 @@
  */
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { KeyRound, Loader2, ShieldCheck } from 'lucide-react'
 
+import { Button } from '@/components/common/Button'
+import { Card, CardBody, CardHeader } from '@/components/common/Card'
+import { Field, FormError, TextInput } from '@/components/common/Form'
+import { PageHeader } from '@/components/common/PageHeader'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/lib/api'
+import { initials } from '@/lib/utils'
 
 const MIN_PASSWORD_LENGTH = 10
 
@@ -58,103 +64,111 @@ export default function Account() {
     }
   }
 
-  return (
-    <div className="p-4 md:p-6">
-      <h1 className="text-2xl font-semibold text-gray-900">Account</h1>
+  const nameParts = (user?.full_name ?? '?').split(' ')
 
-      <div className="mt-6 max-w-xl rounded-lg border border-gray-200 bg-white p-6">
-        <dl className="grid grid-cols-[7rem_1fr] gap-y-2 text-sm">
-          <dt className="text-gray-500">Name</dt>
-          <dd className="text-gray-900">{user?.full_name}</dd>
-          <dt className="text-gray-500">Email</dt>
-          <dd className="text-gray-900">{user?.email}</dd>
-          <dt className="text-gray-500">Role</dt>
-          <dd className="capitalize text-gray-900">{user?.role}</dd>
-        </dl>
-      </div>
-
-      <form
-        onSubmit={onSubmit}
-        className="mt-6 max-w-xl space-y-4 rounded-lg border border-gray-200 bg-white p-6"
-      >
-        <div>
-          <h2 className="text-lg font-medium text-gray-900">Change password</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Every device signed in as you is signed out, including this one.
-          </p>
-        </div>
-
-        <PasswordField
-          id="current-password"
-          label="Current password"
-          autoComplete="current-password"
-          value={currentPassword}
-          onChange={setCurrentPassword}
-        />
-        <PasswordField
-          id="new-password"
-          label="New password"
-          autoComplete="new-password"
-          value={newPassword}
-          onChange={setNewPassword}
-          hint={`At least ${MIN_PASSWORD_LENGTH} characters. Longer is better than complicated.`}
-        />
-        <PasswordField
-          id="confirm-password"
-          label="Confirm new password"
-          autoComplete="new-password"
-          value={confirmPassword}
-          onChange={setConfirmPassword}
-        />
-
-        {error && (
-          <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
-        >
-          {busy ? 'Changing…' : 'Change password'}
-        </button>
-      </form>
-    </div>
-  )
-}
-
-function PasswordField({
-  id,
-  label,
-  value,
-  onChange,
-  autoComplete,
-  hint,
-}: {
-  id: string
-  label: string
-  value: string
-  onChange: (v: string) => void
-  autoComplete: string
-  hint?: string
-}) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium text-gray-700">
-        {label}
-      </label>
-      <input
-        id={id}
-        type="password"
-        required
-        autoComplete={autoComplete}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+      <PageHeader
+        title="Account"
+        description="Your identity on this device and the password guarding it."
       />
-      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader title="Profile" />
+          <CardBody>
+            <div className="flex items-center gap-3.5 border-b border-border/60 pb-4">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary-ink ring-1 ring-primary-100">
+                {initials(nameParts[0] ?? '?', nameParts[1] ?? '')}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-foreground">
+                  {user?.full_name}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {user?.email}
+                </div>
+              </div>
+            </div>
+
+            <dl className="space-y-3 pt-4">
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-sm text-muted-foreground">Role</dt>
+                <dd className="inline-flex items-center gap-1.5 rounded-full border border-border bg-stone-50 px-2 py-0.5 text-xs font-medium text-stone-700 capitalize">
+                  <ShieldCheck className="h-3 w-3 text-primary-ink" />
+                  {user?.role}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-sm text-muted-foreground">Status</dt>
+                <dd className="text-sm text-foreground">
+                  {user?.is_active ? 'Active' : 'Inactive'}
+                </dd>
+              </div>
+            </dl>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Change password"
+            description="Every device signed in as you is signed out, including this one."
+          />
+          <CardBody>
+            <form onSubmit={onSubmit} className="space-y-4">
+              <Field label="Current password" htmlFor="current-password" required>
+                <TextInput
+                  id="current-password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
+              </Field>
+
+              <Field
+                label="New password"
+                htmlFor="new-password"
+                required
+                hint={`At least ${MIN_PASSWORD_LENGTH} characters. Longer is better than complicated.`}
+              >
+                <TextInput
+                  id="new-password"
+                  type="password"
+                  required
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </Field>
+
+              <Field label="Confirm new password" htmlFor="confirm-password" required>
+                <TextInput
+                  id="confirm-password"
+                  type="password"
+                  required
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </Field>
+
+              {error && <FormError>{error}</FormError>}
+
+              <Button type="submit" variant="primary" disabled={busy}>
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <KeyRound className="h-4 w-4" />
+                )}
+                {busy ? 'Changing…' : 'Change password'}
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+      </div>
+
     </div>
   )
 }

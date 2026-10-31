@@ -1,9 +1,17 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Power } from 'lucide-react'
+import { useParams } from 'react-router-dom'
+import { Loader2, Power, TrendingUp } from 'lucide-react'
 
+import { Button } from '@/components/common/Button'
+import { Card, CardBody, CardHeader } from '@/components/common/Card'
+import {
+  Field,
+  FormError,
+  TextInput,
+} from '@/components/common/Form'
 import { ErrorState, Loading } from '@/components/common/Loading'
-import { StatusBadge } from '@/components/common/StatusBadge'
+import { PageHeader } from '@/components/common/PageHeader'
+import { Chip, StatusBadge } from '@/components/common/StatusBadge'
 import { useAuth } from '@/hooks/useAuth'
 import {
   useCreateRate,
@@ -32,7 +40,7 @@ export default function ProduceDetail() {
   if (line.isLoading) return <Loading />
   if (line.error)
     return (
-      <div className="p-6">
+      <div className="py-6">
         <ErrorState
           message={(line.error as Error).message}
           onRetry={() => line.refetch()}
@@ -43,6 +51,7 @@ export default function ProduceDetail() {
 
   const l = line.data
   const sortedRates = rates.data ?? []
+  const currentRate = sortedRates.find((r) => !r.effective_to)
 
   const submitRate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -88,87 +97,125 @@ export default function ProduceDetail() {
   }
 
   return (
-    <div className="p-4 md:p-6">
-      <Link
-        to="/produce"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to produce
-      </Link>
-
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-gray-900">{l.name}</h1>
-            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-mono text-gray-600">
-              {l.code}
-            </span>
+    <div>
+      <PageHeader
+        back={{ to: '/produce', label: 'Produce & Rates' }}
+        title={l.name}
+        badge={
+          <>
+            <Chip>{l.code}</Chip>
             {!l.is_active && <StatusBadge tone="neutral">Inactive</StatusBadge>}
-          </div>
-          <p className="mt-1 text-sm text-gray-600">
-            per {l.unit}
+          </>
+        }
+        description={
+          <>
+            Priced per {l.unit}
             {l.description ? ` · ${l.description}` : ''}
-          </p>
-        </div>
+          </>
+        }
+        action={
+          isAdmin &&
+          l.is_active && (
+            <Button
+              variant="danger"
+              onClick={doDeactivate}
+              disabled={deactivate.isPending}
+            >
+              <Power className="h-4 w-4" />
+              {deactivate.isPending ? 'Deactivating…' : 'Deactivate'}
+            </Button>
+          )
+        }
+      />
 
-        {isAdmin && l.is_active && (
-          <button
-            onClick={doDeactivate}
-            disabled={deactivate.isPending}
-            className="inline-flex items-center gap-2 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-          >
-            <Power className="h-4 w-4" />
-            {deactivate.isPending ? 'Deactivating…' : 'Deactivate'}
-          </button>
-        )}
+      {/* Current rate */}
+      <div className="mb-4 grid gap-4 sm:grid-cols-2">
+        <Card>
+          <CardBody className="p-5">
+            <div className="text-[11px] font-semibold tracking-wider text-stone-500 uppercase">
+              Current rate
+            </div>
+            <div className="mt-1.5 text-[28px] leading-none font-semibold text-foreground tabular-nums">
+              {currentRate
+                ? formatMoney(currentRate.rate_per_unit, currentRate.currency)
+                : '—'}
+              {currentRate && (
+                <span className="ml-1 text-sm font-normal text-muted-foreground">
+                  / {l.unit}
+                </span>
+              )}
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {currentRate
+                ? `Effective since ${currentRate.effective_from}`
+                : 'No rate set — deliveries will be recorded unvalued.'}
+            </div>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody className="p-5">
+            <div className="text-[11px] font-semibold tracking-wider text-stone-500 uppercase">
+              Rate changes
+            </div>
+            <div className="mt-1.5 text-[28px] leading-none font-semibold text-foreground tabular-nums">
+              {sortedRates.length}
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              Append-only history — past deliveries keep their snapshot.
+            </div>
+          </CardBody>
+        </Card>
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
-          {error}
+        <div className="mb-4">
+          <FormError>{error}</FormError>
         </div>
       )}
       {successMessage && (
-        <div className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-800">
+        <div className="mb-4 rounded-lg border border-success/25 bg-success-soft px-3 py-2.5 text-sm text-success-ink">
           {successMessage}
         </div>
       )}
 
-      <section className="rounded-lg border border-gray-200 bg-white">
-        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Rate history
-          </h2>
-          {isAdmin && l.is_active && !showRateForm && (
-            <button
-              onClick={() => {
-                setShowRateForm(true)
-                setNewRate('')
-                setError(null)
-              }}
-              className="rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              Set new rate
-            </button>
-          )}
-        </div>
+      <Card>
+        <CardHeader
+          title="Rate history"
+          divider={showRateForm}
+          action={
+            isAdmin &&
+            l.is_active &&
+            !showRateForm && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setShowRateForm(true)
+                  setNewRate('')
+                  setError(null)
+                }}
+              >
+                <TrendingUp className="h-3.5 w-3.5" />
+                Set new rate
+              </Button>
+            )
+          }
+        />
 
         {showRateForm && (
           <form
             onSubmit={submitRate}
-            className="border-b border-gray-200 bg-gray-50 px-5 py-4"
+            className="animate-in fade-in border-b border-border/70 bg-stone-50/60 px-5 py-4 duration-200"
           >
-            <p className="mb-3 text-xs text-gray-600">
+            <p className="mb-3 text-xs text-muted-foreground">
               Setting a new rate closes the current one at the new effective
               date. Past deliveries keep their original snapshot.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  Rate per {l.unit}
-                </label>
-                <input
+              <Field label={`Rate per ${l.unit}`} htmlFor="new-rate" required>
+                <TextInput
+                  id="new-rate"
                   type="number"
                   inputMode="decimal"
                   step="0.0001"
@@ -176,38 +223,38 @@ export default function ProduceDetail() {
                   required
                   value={newRate}
                   onChange={(e) => setNewRate(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
                   placeholder="0.00"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  Effective from
-                </label>
-                <input
+              </Field>
+              <Field label="Effective from" htmlFor="effective-from" required>
+                <TextInput
+                  id="effective-from"
                   type="date"
                   required
                   value={effectiveFrom}
                   onChange={(e) => setEffectiveFrom(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
                 />
-              </div>
+              </Field>
             </div>
             <div className="mt-3 flex gap-2">
-              <button
+              <Button
                 type="submit"
+                variant="primary"
+                size="sm"
                 disabled={createRate.isPending}
-                className="rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
               >
+                {createRate.isPending && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
                 {createRate.isPending ? 'Saving…' : 'Save rate'}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setShowRateForm(false)}
-                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         )}
@@ -219,35 +266,41 @@ export default function ProduceDetail() {
           </div>
         )}
         {rates.data && rates.data.length === 0 && (
-          <p className="px-5 py-6 text-sm text-gray-500">
-            No rate has ever been set for this line. Deliveries will be
-            recorded without a value until a rate exists.
+          <p className="px-5 py-10 text-center text-sm text-muted-foreground">
+            No rate has ever been set for this line. Deliveries will be recorded
+            without a value until a rate exists.
           </p>
         )}
         {rates.data && rates.data.length > 0 && (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-border/60">
             {sortedRates.map((r) => (
               <li
                 key={r.id}
-                className="flex items-center justify-between gap-4 px-5 py-3 text-sm"
+                className="flex items-center justify-between gap-4 px-5 py-3.5"
               >
-                <div>
-                  <div className="font-medium text-gray-900">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-foreground tabular-nums">
                     {formatMoney(r.rate_per_unit, r.currency)} per {l.unit}
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
                     from {r.effective_from}
                     {r.effective_to
                       ? ` to ${r.effective_to}`
                       : ' · current'}
                   </div>
                 </div>
-                {!r.effective_to && <StatusBadge tone="success">Current</StatusBadge>}
+                {!r.effective_to ? (
+                  <StatusBadge tone="success">Current</StatusBadge>
+                ) : (
+                  <StatusBadge tone="neutral" dot={false}>
+                    Closed
+                  </StatusBadge>
+                )}
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Card>
     </div>
   )
 }

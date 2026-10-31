@@ -1,12 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { Check, Loader2, Package } from 'lucide-react'
 
 import { FarmerPicker } from '@/components/common/FarmerPicker'
+import { Button } from '@/components/common/Button'
+import { Card, CardBody, CardFooter } from '@/components/common/Card'
+import {
+  Field,
+  FormError,
+  TextArea,
+  TextInput,
+} from '@/components/common/Form'
+import { PageHeader } from '@/components/common/PageHeader'
 import { ApiError } from '@/lib/api'
 import { useCreateDelivery } from '@/hooks/useDeliveries'
 import { useFarmer } from '@/hooks/useFarmers'
 import { useProduceLines } from '@/hooks/useProduceLines'
+import { cn } from '@/lib/utils'
 import type { Farmer } from '@/types/api'
 
 export default function NewDelivery() {
@@ -47,7 +57,8 @@ export default function NewDelivery() {
     if (!farmer) return setError('Please select a farmer.')
     if (!produceLineId) return setError('Please select a produce line.')
     const q = Number(quantity)
-    if (!Number.isFinite(q) || q <= 0) return setError('Quantity must be a positive number.')
+    if (!Number.isFinite(q) || q <= 0)
+      return setError('Quantity must be a positive number.')
 
     try {
       const delivery = await create.mutateAsync({
@@ -69,131 +80,137 @@ export default function NewDelivery() {
   }
 
   return (
-    <div className="p-4 md:p-6">
-      <Link
-        to="/deliveries"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to deliveries
-      </Link>
+    <div>
+      <PageHeader
+        title="Record delivery"
+        back={{ to: '/deliveries', label: 'Deliveries' }}
+        description="Use the moment the produce was physically received — the rate is snapshotted from that date."
+      />
 
-      <h1 className="text-2xl font-semibold text-gray-900">Record delivery</h1>
-      <p className="mt-1 text-sm text-gray-600">
-        Use the local time the produce was received.
-      </p>
+      <form onSubmit={onSubmit} className="max-w-2xl">
+        <Card>
+          <CardBody className="space-y-6 p-5 sm:p-6">
+            <FarmerPicker value={farmer} onChange={setFarmer} required />
 
-      <form
-        onSubmit={onSubmit}
-        className="mt-6 max-w-xl space-y-5 rounded-lg border border-gray-200 bg-white p-5"
-      >
-        <FarmerPicker value={farmer} onChange={setFarmer} required />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Produce line
-            <span className="ml-0.5 text-red-500">*</span>
-          </label>
-          {produceLines.isLoading && (
-            <p className="mt-2 text-sm text-gray-500">Loading produce lines…</p>
-          )}
-          {produceLines.error && (
-            <p className="mt-2 text-sm text-red-600">Failed to load produce lines.</p>
-          )}
-          {produceLines.data && (
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {activeLines.map((l) => {
-                const selected = produceLineId === l.id
-                return (
-                  <button
-                    key={l.id}
-                    type="button"
-                    onClick={() => setProduceLineId(l.id)}
-                    className={
-                      'flex flex-col items-start gap-0.5 rounded-md border px-3 py-3 text-left transition ' +
-                      (selected
-                        ? 'border-primary-500 bg-primary-50 text-primary-800'
-                        : 'border-gray-300 bg-white text-gray-700 hover:border-primary-400')
-                    }
-                  >
-                    <span className="text-sm font-medium">{l.name}</span>
-                    <span className="text-xs text-gray-500">per {l.unit}</span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Quantity
-            {selectedLine && (
-              <span className="ml-1 font-normal text-gray-500">
-                ({selectedLine.unit})
+            <div>
+              <span className="flex items-center gap-1 text-sm font-medium text-stone-700">
+                Produce line
+                <span className="text-danger" aria-hidden="true">
+                  *
+                </span>
               </span>
-            )}
-            <span className="ml-0.5 text-red-500">*</span>
-          </label>
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.0001"
-            min="0"
-            required
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-3 text-lg font-medium shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-            placeholder="0"
-          />
-        </div>
+              {produceLines.isLoading && (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Loading produce lines…
+                </p>
+              )}
+              {produceLines.error && (
+                <p className="mt-2 text-sm text-danger-ink">
+                  Failed to load produce lines.
+                </p>
+              )}
+              {produceLines.data && (
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {activeLines.map((l) => {
+                    const selected = produceLineId === l.id
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => setProduceLineId(l.id)}
+                        className={cn(
+                          'relative flex flex-col items-start gap-0.5 rounded-lg border px-3 py-3 text-left transition-colors',
+                          selected
+                            ? 'border-primary-500 bg-primary-soft/70 text-primary-ink ring-1 ring-primary-500/20'
+                            : 'border-border bg-card text-stone-700 hover:border-primary-300 hover:bg-primary-soft/30',
+                        )}
+                      >
+                        <span className="text-sm font-medium">{l.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          per {l.unit}
+                        </span>
+                        {selected && (
+                          <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-primary-600 text-white">
+                            <Check className="h-2.5 w-2.5" />
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Collection point / location
-          </label>
-          <input
-            type="text"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="Optional"
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-          />
-        </div>
+            <Field
+              label={`Quantity${selectedLine ? ` (${selectedLine.unit})` : ''}`}
+              htmlFor="quantity"
+              required
+              hint="Four decimal places are stored; the ledger never rounds mid-calculation."
+            >
+              <input
+                id="quantity"
+                type="number"
+                inputMode="decimal"
+                step="0.0001"
+                min="0"
+                required
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                placeholder="0"
+                className="h-14 w-full rounded-lg border border-input bg-card px-3 text-2xl font-semibold tracking-tight text-foreground shadow-xs tabular-nums transition-[border-color,box-shadow] placeholder:font-normal placeholder:text-stone-300 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/12 focus:outline-none"
+              />
+            </Field>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Notes
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={2}
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-          />
-        </div>
+            <div className="border-t border-border/60 pt-5">
+              <div className="space-y-4">
+                <Field
+                  label="Collection point / location"
+                  htmlFor="location"
+                  hint="Optional — where the produce was handed over."
+                >
+                  <TextInput
+                    id="location"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="e.g. Kisumu Central shed"
+                  />
+                </Field>
 
-        {error && (
-          <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+                <Field label="Notes" htmlFor="notes">
+                  <TextArea
+                    id="notes"
+                    rows={2}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </div>
 
-        <div className="flex flex-wrap gap-3 pt-1">
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="flex-1 rounded-md bg-primary-600 px-4 py-3 text-base font-medium text-white transition hover:bg-primary-700 disabled:opacity-60 sm:flex-none sm:px-6"
-          >
-            {create.isPending ? 'Recording…' : 'Record delivery'}
-          </button>
-          <Link
-            to="/deliveries"
-            className="rounded-md border border-gray-300 bg-white px-4 py-3 text-base font-medium text-gray-700 hover:bg-gray-50 sm:py-2 sm:text-sm"
-          >
-            Cancel
-          </Link>
-        </div>
+            {error && <FormError>{error}</FormError>}
+          </CardBody>
+
+          <CardFooter className="justify-end">
+            <Link
+              to="/deliveries"
+              className="rounded-lg px-3 py-2 text-sm font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+            >
+              Cancel
+            </Link>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={create.isPending}
+            >
+              {create.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Package className="h-4 w-4" />
+              )}
+              {create.isPending ? 'Recording…' : 'Record delivery'}
+            </Button>
+          </CardFooter>
+        </Card>
       </form>
     </div>
   )

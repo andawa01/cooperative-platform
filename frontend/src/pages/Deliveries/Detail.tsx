@@ -1,8 +1,16 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, RefreshCw, Sparkles } from 'lucide-react'
+import { ArrowRight, RefreshCw, Sparkles } from 'lucide-react'
 
+import { Button } from '@/components/common/Button'
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  DetailRow,
+} from '@/components/common/Card'
 import { ErrorState, Loading } from '@/components/common/Loading'
+import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { useAuth } from '@/hooks/useAuth'
 import {
@@ -28,7 +36,7 @@ export default function DeliveryDetail() {
   if (delivery.isLoading) return <Loading />
   if (delivery.error)
     return (
-      <div className="p-6">
+      <div className="py-6">
         <ErrorState
           message={(delivery.error as Error).message}
           onRetry={() => delivery.refetch()}
@@ -65,109 +73,151 @@ export default function DeliveryDetail() {
   }
 
   return (
-    <div className="p-4 md:p-6">
-      <Link
-        to="/deliveries"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to deliveries
-      </Link>
-
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-gray-900">
-              {farmer.data
-                ? `${farmer.data.first_name} ${farmer.data.last_name}`
-                : 'Delivery'}
-            </h1>
+    <div>
+      <PageHeader
+        back={{ to: '/deliveries', label: 'Deliveries' }}
+        title={
+          farmer.data
+            ? `${farmer.data.first_name} ${farmer.data.last_name}`
+            : 'Delivery'
+        }
+        badge={
+          <>
             {isReversal && <StatusBadge tone="danger">Reversal</StatusBadge>}
-            {isUnvalued && <StatusBadge tone="warning">Pending valuation</StatusBadge>}
-          </div>
-          <p className="mt-1 text-sm text-gray-600">
-            {line.data?.name ?? 'Loading…'} — {new Date(d.delivered_at).toLocaleString()}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {isAdmin && isUnvalued && !isReversal && (
-            <button
-              onClick={doValue}
-              disabled={value.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
-            >
-              <Sparkles className="h-4 w-4" />
-              {value.isPending ? 'Valuing…' : 'Value now'}
-            </button>
-          )}
-          {isAdmin && !isReversal && (
-            <button
-              onClick={doReverse}
-              disabled={reverse.isPending}
-              className="inline-flex items-center gap-2 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-            >
-              <RefreshCw className="h-4 w-4" />
-              {reverse.isPending ? 'Reversing…' : 'Reverse'}
-            </button>
-          )}
-        </div>
-      </div>
+            {isUnvalued && !isReversal && (
+              <StatusBadge tone="warning">Pending valuation</StatusBadge>
+            )}
+            {!isUnvalued && !isReversal && (
+              <StatusBadge tone="success">Valued</StatusBadge>
+            )}
+          </>
+        }
+        description={
+          <>
+            {line.data?.name ?? 'Loading…'} ·{' '}
+            {new Date(d.delivered_at).toLocaleString()}
+          </>
+        }
+        action={
+          <>
+            {isAdmin && isUnvalued && !isReversal && (
+              <Button
+                variant="primary"
+                onClick={doValue}
+                disabled={value.isPending}
+              >
+                <Sparkles className="h-4 w-4" />
+                {value.isPending ? 'Valuing…' : 'Value now'}
+              </Button>
+            )}
+            {isAdmin && !isReversal && (
+              <Button
+                variant="danger"
+                onClick={doReverse}
+                disabled={reverse.isPending}
+              >
+                <RefreshCw className="h-4 w-4" />
+                {reverse.isPending ? 'Reversing…' : 'Reverse'}
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {actionError && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border border-danger/20 bg-danger-soft px-3 py-2.5 text-sm text-danger-ink">
           {actionError}
         </div>
       )}
 
-      <section className="rounded-lg border border-gray-200 bg-white p-5">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Details
-        </h2>
-        <dl className="space-y-3 text-sm">
-          <Row label="Quantity" value={`${d.quantity} ${line.data?.unit ?? ''}`} />
-          <Row
-            label="Rate applied"
-            value={d.rate_snapshot ? `${d.rate_snapshot} ${d.currency_snapshot}` : 'Pending'}
-          />
-          <Row
-            label="Amount"
-            value={d.amount ? formatMoney(d.amount, d.currency_snapshot) : '—'}
-          />
-          <Row
-            label="Delivered at"
-            value={new Date(d.delivered_at).toLocaleString()}
-          />
-          <Row label="Recorded at" value={new Date(d.recorded_at).toLocaleString()} />
-          {d.location && <Row label="Location" value={d.location} />}
-          {d.notes && <Row label="Notes" value={d.notes} />}
-          {d.reversal_of_id && (
-            <Row label="Reverses" value={d.reversal_of_id} mono />
-          )}
-        </dl>
-      </section>
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* The value is the headline */}
+        <Card className="lg:col-span-2">
+          <CardHeader title="Valuation" />
+          <CardBody>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-border bg-stone-50 p-4">
+                <div className="text-[11px] font-semibold tracking-wider text-stone-500 uppercase">
+                  Quantity
+                </div>
+                <div className="mt-1.5 text-[26px] leading-none font-semibold text-foreground tabular-nums">
+                  {Number(d.quantity).toLocaleString(undefined, {
+                    maximumFractionDigits: 4,
+                  })}
+                  <span className="ml-1 text-sm font-normal text-muted-foreground">
+                    {line.data?.unit ?? ''}
+                  </span>
+                </div>
+              </div>
 
-      {farmer.data && (
-        <div className="mt-6">
-          <Link
-            to={`/farmers/${farmer.data.id}`}
-            className="text-sm text-primary-700 hover:text-primary-800"
-          >
-            View farmer profile →
-          </Link>
-        </div>
-      )}
-    </div>
-  )
-}
+              <div
+                className={
+                  d.amount
+                    ? 'rounded-xl border border-primary-100 bg-primary-soft/60 p-4'
+                    : 'rounded-xl border border-warning/25 bg-warning-soft p-4'
+                }
+              >
+                <div className="text-[11px] font-semibold tracking-wider text-stone-500 uppercase">
+                  Amount
+                </div>
+                <div className="mt-1.5 text-[26px] leading-none font-semibold text-foreground tabular-nums">
+                  {d.amount
+                    ? formatMoney(d.amount, d.currency_snapshot)
+                    : 'Not valued'}
+                </div>
+              </div>
+            </div>
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4">
-      <dt className="text-gray-600">{label}</dt>
-      <dd className={`text-right text-gray-900 ${mono ? 'font-mono text-xs' : ''}`}>
-        {value}
-      </dd>
+            <dl className="mt-5 space-y-3 border-t border-border/60 pt-4">
+              <DetailRow
+                label="Rate applied"
+                value={
+                  d.rate_snapshot
+                    ? `${d.rate_snapshot} ${d.currency_snapshot}`
+                    : 'Pending'
+                }
+              />
+              <DetailRow
+                label="Delivered at"
+                value={new Date(d.delivered_at).toLocaleString()}
+              />
+              <DetailRow
+                label="Recorded at"
+                value={new Date(d.recorded_at).toLocaleString()}
+              />
+              {d.location && <DetailRow label="Location" value={d.location} />}
+              {d.notes && <DetailRow label="Notes" value={d.notes} />}
+              {d.reversal_of_id && (
+                <DetailRow label="Reverses" value={d.reversal_of_id} mono />
+              )}
+            </dl>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader title="Farmer" />
+          <CardBody>
+            {farmer.data ? (
+              <Link
+                to={`/farmers/${farmer.data.id}`}
+                className="group flex items-center justify-between gap-3 rounded-lg border border-border/80 p-3 transition-colors hover:border-primary-300 hover:bg-primary-soft/40"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-foreground">
+                    {farmer.data.first_name} {farmer.data.last_name}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground tabular-nums">
+                    {farmer.data.phone}
+                  </span>
+                </span>
+                <ArrowRight className="h-4 w-4 shrink-0 text-stone-400 transition-transform group-hover:translate-x-0.5 group-hover:text-primary-ink" />
+              </Link>
+            ) : (
+              <p className="text-sm text-muted-foreground">Loading farmer…</p>
+            )}
+          </CardBody>
+        </Card>
+      </div>
     </div>
   )
 }

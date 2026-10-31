@@ -20,7 +20,7 @@ const columns: DataColumn<Notification>[] = [
     header: 'Created',
     hideBelow: 'sm',
     render: (n) => (
-      <span className="text-gray-700">
+      <span className="text-stone-600 tabular-nums">
         {new Date(n.created_at).toLocaleDateString()}
       </span>
     ),
@@ -30,10 +30,10 @@ const columns: DataColumn<Notification>[] = [
     header: 'Recipient',
     render: (n) => (
       <div className="min-w-0">
-        <div className="font-medium text-gray-900 tabular-nums">
+        <div className="font-medium text-foreground tabular-nums">
           {n.recipient}
         </div>
-        <div className="mt-0.5 truncate text-xs text-gray-500 lg:hidden">
+        <div className="mt-0.5 truncate text-xs text-muted-foreground lg:hidden">
           {TEMPLATE_LABELS[n.template] ?? n.template}
         </div>
       </div>
@@ -44,7 +44,7 @@ const columns: DataColumn<Notification>[] = [
     header: 'About',
     hideBelow: 'lg',
     render: (n) => (
-      <span className="text-gray-700">
+      <span className="text-stone-600">
         {TEMPLATE_LABELS[n.template] ?? n.template}
       </span>
     ),
@@ -56,7 +56,9 @@ const columns: DataColumn<Notification>[] = [
       <div className="flex flex-wrap items-center gap-1.5">
         <NotificationStatusBadge status={n.status} />
         {n.attempts > 1 && (
-          <span className="text-xs text-gray-500">{n.attempts} tries</span>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {n.attempts} tries
+          </span>
         )}
       </div>
     ),
@@ -66,7 +68,7 @@ const columns: DataColumn<Notification>[] = [
     header: 'Message',
     hideBelow: 'xl',
     render: (n) => (
-      <span className="line-clamp-2 max-w-md text-xs text-gray-600">
+      <span className="line-clamp-2 max-w-md text-xs text-muted-foreground">
         {n.content}
       </span>
     ),
@@ -82,7 +84,7 @@ export default function NotificationsList() {
   })
 
   return (
-    <div className="p-4 md:p-6">
+    <div>
       <PageHeader
         title="Notifications"
         description={
