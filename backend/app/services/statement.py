@@ -1,5 +1,17 @@
 """
-Statement service. See module docstring...
+Statement service.
+
+A statement is the chronological story of a farmer's position: deliveries
+raise what the co-op owes them, payments settle it, and deductions withhold
+from it. All three are top-level events here — nothing is nested — so the
+screen can render one flat, ordered list.
+
+Reversals appear as their own entries rather than cancelling the original, the
+same choice the delivery and payment ledgers make (D-019): a statement is an
+audit trail, and history that silently disappears is not auditable.
+
+The closing figures MUST equal /farmers/{id}/balance when the range runs
+through today. There is a pytest for exactly that.
 """
 
 import uuid
@@ -9,6 +21,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.deduction import Deduction
 from app.models.delivery import Delivery
 from app.models.payment import Payment, PaymentAllocation
 from app.models.produce import ProduceLine
@@ -48,47 +61,14 @@ def describe_payment(payment: Payment) -> str:
     return f"{payment.method}{ref} {payment.amount} {payment.currency}"
 
 
-def _compute_deltas(
-    delivery: Delivery | None,
-    payment: Payment | None,
-    reversed_allocations_by_delivery: dict[uuid.UUID, Decimal],
-) -> tuple[Decimal, Decimal]:
-    """
-    Return (debt_delta, credit_delta) for one top-level event.
-
-    reversed_allocations_by_delivery: for a delivery_reversal event, sum of
-    the (positive) amounts of the allocations that were reversed by its
-    cascade, keyed by the original delivery id.
-    """
-    if delivery is not None:
-        if delivery.reversal_of_id is None:
-            # Normal delivery: increases debt.
-            amount = (delivery.rate_snapshot or Decimal("0")) * delivery.quantity
-            return (amount, Decimal("0"))
-        else:
-            # Delivery reversal: debt reduced by original amount, minus the
-            # un-doing of allocations (since those allocations also disappear).
-            # Net effect on debt: -orig_amount + reversed_alloc_sum
-            # Net effect on credit: +reversed_alloc_sum
-            orig_amount = abs(
-                (delivery.rate_snapshot or Decimal("0")) * delivery.quantity
-            )
-            reversed_alloc = reversed_allocations_by_delivery.get(
-                delivery.reversal_of_id, Decimal("0")
-            )
-            return (-orig_amount + reversed_alloc, reversed_alloc)
-
-    if payment is not None:
-        if payment.reversal_of_id is None:
-            # Normal payment: credit goes up by amount not allocated; debt
-            # goes down by allocations. We compute allocations at build time
-            # from the payment_allocations we loaded.
-            # handled by caller
-            raise RuntimeError("payment delta handled by caller")
-        else:
-            raise RuntimeError("payment delta handled by caller")
-
-    raise RuntimeError("event has neither delivery nor payment")
+def describe_deduction(deduction: Deduction) -> str:
+    label = deduction.reason_code.replace("_", " ")
+    if deduction.reversal_of_id is not None:
+        reason = (deduction.notes or "").removeprefix("[reversal] ").strip()
+        base = f"Deduction reversal: {label}"
+        return f"{base}: {reason}" if reason else base
+    ref = f" ({deduction.reference})" if deduction.reference else ""
+    return f"{label} {deduction.amount} {deduction.currency}{ref}"
 
 
 # ---------------------------------------------------------------------------
@@ -102,12 +82,13 @@ def build_statement(
     start: datetime,
     end: datetime,
 ) -> FarmerStatementResponse:
-    # Opening pair: everything strictly before `start`.
+    # Opening position: everything strictly before `start`.
     opening = ledger_service.compute_balance_at(
         db, farmer_id, as_of=start, inclusive=False
     )
     opening_debt = opening.outstanding_debt
     opening_credit = opening.available_credit
+    opening_deductions = opening.deductions_total
 
     # Load events in [start, end].
     deliveries = list(
@@ -124,6 +105,14 @@ def build_statement(
             .where(Payment.farmer_id == farmer_id)
             .where(Payment.paid_at >= start)
             .where(Payment.paid_at <= end)
+        ).all()
+    )
+    deductions = list(
+        db.scalars(
+            select(Deduction)
+            .where(Deduction.farmer_id == farmer_id)
+            .where(Deduction.applied_at >= start)
+            .where(Deduction.applied_at <= end)
         ).all()
     )
 
@@ -145,7 +134,7 @@ def build_statement(
 
     # Build allocation indexes.
     # allocations_by_payment: {payment_id: net_alloc_sum}
-    # reversed_alloc_by_delivery_reversal: {reversal_delivery_id: amount}
+    # reversed_alloc_by_original_delivery: {original_delivery_id: amount}
     allocations_by_payment: dict[uuid.UUID, Decimal] = {}
     for a in allocations:
         allocations_by_payment[a.payment_id] = (
@@ -155,8 +144,7 @@ def build_statement(
     # For delivery reversals: their cascade creates PaymentAllocation rows with
     # reversal_of_id pointing at the original allocations and delivery_id equal
     # to the ORIGINAL delivery. We need "for original delivery X, how much was
-    # reversed". We can find this by looking at allocations with
-    # reversal_of_id NOT NULL and delivery_id = X.
+    # reversed".
     reversed_alloc_by_original_delivery: dict[uuid.UUID, Decimal] = {}
     for a in allocations:
         if a.reversal_of_id is not None:
@@ -178,20 +166,41 @@ def build_statement(
         events.append((d.delivered_at, "delivery", d))
     for p in payments:
         events.append((p.paid_at, "payment", p))
+    for x in deductions:
+        events.append(
+            (
+                x.applied_at,
+                "deduction" if x.reversal_of_id is None else "deduction_reversal",
+                x,
+            )
+        )
 
-    # Sort: by date, then delivery before payment (deterministic tie-break),
-    # then by id for full determinism.
+    # Sort: by date, then by kind, then by id for full determinism.
+    # A reversal copies its original's `applied_at`, so on the tie it must
+    # come after the charge it undoes — otherwise a statement reads "withheld
+    # -250, withheld +250" and the running total dips below zero for no reason
+    # the reader can see.
+    kind_rank = {
+        "delivery": 0,
+        "payment": 1,
+        "deduction": 2,
+        "deduction_reversal": 3,
+    }
+
     def sort_key(ev):
         dt, kind, obj = ev
-        kind_rank = 0 if kind == "delivery" else 1
-        return (dt, kind_rank, str(obj.id))
+        return (dt, kind_rank[kind], str(obj.id))
 
     events.sort(key=sort_key)
 
     # Walk and apply.
     current_debt = opening_debt
     current_credit = opening_credit
+    current_deductions = opening_deductions
     entries: list[StatementEntry] = []
+
+    def net() -> Decimal:
+        return current_debt - current_credit - current_deductions
 
     for dt, kind, obj in events:
         if kind == "delivery":
@@ -225,9 +234,11 @@ def build_statement(
                     reversal_of_id=d.reversal_of_id,
                     debt_after=current_debt,
                     credit_after=current_credit,
+                    deductions_after=current_deductions,
+                    net_after=net(),
                 )
             )
-        else:
+        elif kind == "payment":
             p: Payment = obj
             description = describe_payment(p)
             net_alloc = allocations_by_payment.get(p.id, Decimal("0"))
@@ -238,12 +249,9 @@ def build_statement(
                 amount = p.amount
             else:
                 # Payment reversal: net_alloc here is negative (the reversal
-                # allocation). credit += (p.amount - net_alloc) but p.amount
-                # is already negative...
-                # Let's reason: reversal payment amount = -orig. Its allocations
-                # (from the cascade) are also negative; their sum is net_alloc
-                # (a negative number, equal to -orig_allocated).
-                # Effect on debt: -net_alloc = +orig_allocated → debt increases.
+                # allocation). Its allocations are negative too, summing to
+                # net_alloc = -orig_allocated.
+                # Effect on debt: -net_alloc → debt increases.
                 # Effect on credit: p.amount - net_alloc = -orig + orig_allocated
                 #  = -(orig - orig_allocated) = -(credit from original) ✓
                 debt_delta = -net_alloc
@@ -262,6 +270,32 @@ def build_statement(
                     reversal_of_id=p.reversal_of_id,
                     debt_after=current_debt,
                     credit_after=current_credit,
+                    deductions_after=current_deductions,
+                    net_after=net(),
+                )
+            )
+        else:
+            x: Deduction = obj
+            # A deduction does not touch debt or credit — it withholds from the
+            # settlement. It only moves the withheld total.
+            current_deductions += x.amount
+            entries.append(
+                StatementEntry(
+                    date=dt,
+                    # Shown negative: a charge reduces what the member receives.
+                    type=(
+                        "deduction"
+                        if x.reversal_of_id is None
+                        else "deduction_reversal"
+                    ),
+                    amount=-x.amount,
+                    description=describe_deduction(x),
+                    deduction_id=x.id,
+                    reversal_of_id=x.reversal_of_id,
+                    debt_after=current_debt,
+                    credit_after=current_credit,
+                    deductions_after=current_deductions,
+                    net_after=net(),
                 )
             )
 
@@ -273,10 +307,14 @@ def build_statement(
         opening=StatementOpening(
             outstanding_debt=opening_debt,
             available_credit=opening_credit,
+            deductions_total=opening_deductions,
+            net_payable=opening_debt - opening_credit - opening_deductions,
         ),
         entries=entries,
         closing=StatementOpening(
             outstanding_debt=current_debt,
             available_credit=current_credit,
+            deductions_total=current_deductions,
+            net_payable=net(),
         ),
     )

@@ -79,3 +79,8 @@ class BalanceResponse(BaseModel):
     allocated_to_deliveries: Decimal
     available_credit: Decimal
     pending_valuation_deliveries: int
+    # What has been withheld from this member (transport, cess, input credit).
+    deductions_total: Decimal
+    # The number the farmer is actually handed: debt less credit less
+    # deductions. Negative means the member owes the co-op (arrears).
+    net_payable: Decimal

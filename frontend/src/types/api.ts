@@ -245,6 +245,53 @@ export interface PaymentReverseRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Deductions
+// ---------------------------------------------------------------------------
+
+export type DeductionReason =
+  | 'transport'
+  | 'cess'
+  | 'input_credit'
+  | 'loan_recovery'
+  | 'membership_fee'
+  | 'withholding_tax'
+  | 'fine'
+  | 'other'
+
+export interface Deduction {
+  id: string
+  farmer_id: string
+  /** Resolved server-side, like every other list (D-027). */
+  farmer_name: string
+  /** Positive for a charge, negative for its reversal. */
+  amount: string
+  currency: string
+  reason_code: DeductionReason
+  reference: string | null
+  applied_at: string
+  recorded_at: string
+  recorded_by_id: string
+  reversal_of_id: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DeductionCreateRequest {
+  farmer_id: string
+  amount: string
+  currency: string
+  reason_code: DeductionReason
+  reference?: string | null
+  applied_at: string
+  notes?: string | null
+}
+
+export interface DeductionReverseRequest {
+  reason: string
+}
+
+// ---------------------------------------------------------------------------
 // Balance and statement
 // ---------------------------------------------------------------------------
 
@@ -255,6 +302,10 @@ export interface Balance {
   allocated_to_deliveries: string
   available_credit: string
   pending_valuation_deliveries: number
+  /** Withheld from this member, charges net of reversals. */
+  deductions_total: string
+  /** debt - credit - deductions. Negative means the member owes the co-op. */
+  net_payable: string
 }
 
 export type StatementEntryType =
@@ -262,6 +313,8 @@ export type StatementEntryType =
   | 'delivery_reversal'
   | 'payment'
   | 'payment_reversal'
+  | 'deduction'
+  | 'deduction_reversal'
 
 export interface StatementEntry {
   date: string
@@ -270,9 +323,19 @@ export interface StatementEntry {
   description: string
   delivery_id: string | null
   payment_id: string | null
+  deduction_id: string | null
   reversal_of_id: string | null
   debt_after: string
   credit_after: string
+  deductions_after: string
+  net_after: string
+}
+
+export interface StatementPosition {
+  outstanding_debt: string
+  available_credit: string
+  deductions_total: string
+  net_payable: string
 }
 
 export interface Statement {
@@ -280,15 +343,9 @@ export interface Statement {
   start: string
   end: string
   currency: string
-  opening: {
-    outstanding_debt: string
-    available_credit: string
-  }
+  opening: StatementPosition
   entries: StatementEntry[]
-  closing: {
-    outstanding_debt: string
-    available_credit: string
-  }
+  closing: StatementPosition
 }
 
 // ---------------------------------------------------------------------------
@@ -380,7 +437,13 @@ export interface DeliveriesDaily {
 }
 
 export interface ActivityItem {
-  type: 'delivery' | 'delivery_reversal' | 'payment' | 'payment_reversal'
+  type:
+    | 'delivery'
+    | 'delivery_reversal'
+    | 'payment'
+    | 'payment_reversal'
+    | 'deduction'
+    | 'deduction_reversal'
   id: string
   at: string
   description: string
@@ -400,8 +463,14 @@ export interface DashboardSummary {
   deliveries_value_in_period: string
   payments_in_period: number
   payments_value_in_period: string
+  deductions_in_period: number
+  deductions_value_in_period: string
   outstanding_debt_total: string
   available_credit_total: string
+  /** Withheld from members, all time, net of reversals. */
+  deductions_total: string
+  /** What the co-op actually owes across all members. Negative is arrears. */
+  net_payable_total: string
   pending_valuation_count: number
   deliveries_by_line: DeliveriesByLine[]
   deliveries_daily: DeliveriesDaily[]

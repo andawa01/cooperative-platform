@@ -26,6 +26,10 @@ const PaymentsList = lazy(() => import('@/pages/Payments/List'))
 const NewPayment = lazy(() => import('@/pages/Payments/New'))
 const PaymentDetail = lazy(() => import('@/pages/Payments/Detail'))
 
+const DeductionsList = lazy(() => import('@/pages/Deductions/List'))
+const NewDeduction = lazy(() => import('@/pages/Deductions/New'))
+const DeductionDetail = lazy(() => import('@/pages/Deductions/Detail'))
+
 const NotificationsList = lazy(() => import('@/pages/Notifications/List'))
 const NotificationDetail = lazy(() => import('@/pages/Notifications/Detail'))
 
@@ -151,6 +155,32 @@ export default function App() {
             element={
               <Suspense fallback={<Loading />}>
                 <PaymentDetail />
+              </Suspense>
+            }
+          />
+
+          {/* Deductions */}
+          <Route
+            path="/deductions"
+            element={
+              <Suspense fallback={<Loading />}>
+                <DeductionsList />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/deductions/new"
+            element={
+              <Suspense fallback={<Loading />}>
+                <NewDeduction />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/deductions/:id"
+            element={
+              <Suspense fallback={<Loading />}>
+                <DeductionDetail />
               </Suspense>
             }
           />

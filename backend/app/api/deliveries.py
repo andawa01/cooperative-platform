@@ -372,4 +372,6 @@ def get_farmer_balance(
         allocated_to_deliveries=bal.allocated_to_deliveries,
         available_credit=bal.available_credit,
         pending_valuation_deliveries=bal.pending_valuation_deliveries,
+        deductions_total=bal.deductions_total,
+        net_payable=bal.net_payable,
     )

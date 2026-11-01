@@ -17,6 +17,9 @@ import type {
   AllocationInput,
   AuditEntry,
   Balance,
+  Deduction,
+  DeductionCreateRequest,
+  DeductionReverseRequest,
   Delivery,
   DeliveryCreateRequest,
   DeliveryReverseRequest,
@@ -230,6 +233,21 @@ export const api = {
       request<Payment>('/payments', { method: 'POST', body }),
     reverse: (id: string, body: PaymentReverseRequest) =>
       request<Payment>(`/payments/${id}/reverse`, { method: 'POST', body }),
+  },
+
+  deductions: {
+    list: (params: {
+      farmer_id?: string
+      reason_code?: string
+      include_reversals?: boolean
+      limit?: number
+      offset?: number
+    } = {}) => request<Paginated<Deduction>>('/deductions', { query: params }),
+    get: (id: string) => request<Deduction>(`/deductions/${id}`),
+    create: (body: DeductionCreateRequest) =>
+      request<Deduction>('/deductions', { method: 'POST', body }),
+    reverse: (id: string, body: DeductionReverseRequest) =>
+      request<Deduction>(`/deductions/${id}/reverse`, { method: 'POST', body }),
   },
 
   notifications: {

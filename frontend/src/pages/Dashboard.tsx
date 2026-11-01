@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Banknote,
+  MinusCircle,
   TrendingUp,
   Users,
   Wallet,
@@ -90,13 +91,27 @@ export default function Dashboard() {
       />
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5 lg:gap-4">
         <StatCard
           icon={<Wallet />}
+          tone={parseMoney(data.net_payable_total) < 0 ? 'danger' : 'brand'}
+          label="Net payable"
+          value={formatMoney(data.net_payable_total, data.currency)}
+          sub={`${formatMoney(data.deductions_total, data.currency)} withheld`}
+        />
+        <StatCard
+          icon={<MinusCircle />}
+          tone="neutral"
+          label={`Withheld (${data.period_days}d)`}
+          value={formatMoney(data.deductions_value_in_period, data.currency)}
+          sub={`${data.deductions_in_period} deduction${data.deductions_in_period === 1 ? '' : 's'} · ${formatMoney(data.deductions_total, data.currency)} all time`}
+        />
+        <StatCard
+          icon={<AlertTriangle />}
           tone="danger"
           label="Outstanding debt"
           value={formatMoney(data.outstanding_debt_total, data.currency)}
-          sub="Owed to farmers for deliveries"
+          sub="Owed for deliveries, before withholding"
         />
         <StatCard
           icon={<Banknote />}
@@ -400,9 +415,17 @@ function ActivityRow({
   }
 }) {
   const isDelivery = item.type === 'delivery' || item.type === 'delivery_reversal'
+  const isDeduction =
+    item.type === 'deduction' || item.type === 'deduction_reversal'
   const isReversal =
-    item.type === 'delivery_reversal' || item.type === 'payment_reversal'
-  const to = isDelivery ? `/deliveries/${item.id}` : `/payments/${item.id}`
+    item.type === 'delivery_reversal' ||
+    item.type === 'payment_reversal' ||
+    item.type === 'deduction_reversal'
+  const to = isDelivery
+    ? `/deliveries/${item.id}`
+    : isDeduction
+      ? `/deductions/${item.id}`
+      : `/payments/${item.id}`
 
   return (
     <Link

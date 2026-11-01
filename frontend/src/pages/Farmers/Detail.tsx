@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   Archive,
+  ArrowRight,
   Banknote,
   CheckCircle2,
   FileText,
+  MinusCircle,
   Package,
   TriangleAlert,
 } from 'lucide-react'
@@ -124,13 +126,57 @@ export default function FarmerDetail() {
         <Card className="lg:col-span-3">
           <CardHeader
             title="Financial position"
-            description="Derived from deliveries and payments — there is no stored balance to drift."
+            description="Derived from deliveries, payments and deductions — there is no stored balance to drift."
           />
           <CardBody>
             {balance.isLoading && <Loading label="Loading balance…" />}
             {balance.error && (
               <ErrorState message={(balance.error as Error).message} />
             )}
+            {/* Net payable leads: it is the number a settlement hands over,
+                and a negative value means the member is in arrears. */}
+            {balance.data && (
+              <div className="mb-4 flex flex-col gap-4 rounded-xl border border-primary-200/70 bg-primary-soft/50 p-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <div className="text-[11px] font-semibold tracking-wider text-primary-ink/80 uppercase">
+                    Net payable
+                  </div>
+                  <div
+                    className={`mt-1.5 text-[32px] leading-none font-semibold tracking-tight tabular-nums ${
+                      Number(balance.data.net_payable) < 0
+                        ? 'text-danger-ink'
+                        : 'text-primary-ink'
+                    }`}
+                  >
+                    {formatMoney(balance.data.net_payable, balance.data.currency)}
+                  </div>
+                  <div className="mt-1.5 text-xs text-primary-ink/75">
+                    {Number(balance.data.net_payable) < 0
+                      ? 'Member owes the cooperative — arrears'
+                      : 'Debt less credit less what was withheld'}
+                  </div>
+                </div>
+                <div className="sm:text-right">
+                  <div className="text-[11px] font-semibold tracking-wider text-warning-ink/80 uppercase">
+                    Withheld
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-warning-ink tabular-nums">
+                    {formatMoney(
+                      balance.data.deductions_total,
+                      balance.data.currency,
+                    )}
+                  </div>
+                  <Link
+                    to={`/deductions?farmer_id=${f.id}`}
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline"
+                  >
+                    Withheld amounts
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
+              </div>
+            )}
+
             {balance.data && (
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-xl border border-danger/15 bg-danger-soft/60 p-4">
@@ -276,6 +322,23 @@ export default function FarmerDetail() {
                 </span>
                 <span className="block text-xs text-muted-foreground">
                   Allocated to oldest debt first
+                </span>
+              </span>
+            </Link>
+
+            <Link
+              to={`/deductions/new?farmer_id=${f.id}`}
+              className="group flex items-center gap-3 rounded-lg border border-border/80 p-3 transition-colors hover:border-primary-300 hover:bg-primary-soft/40"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-warning-soft text-warning-ink">
+                <MinusCircle className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">
+                  Record deduction
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Transport, cess, input credit
                 </span>
               </span>
             </Link>

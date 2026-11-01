@@ -40,7 +40,14 @@ class DeliveriesDaily(BaseModel):
 
 
 class ActivityItem(BaseModel):
-    type: Literal["delivery", "delivery_reversal", "payment", "payment_reversal"]
+    type: Literal[
+        "delivery",
+        "delivery_reversal",
+        "payment",
+        "payment_reversal",
+        "deduction",
+        "deduction_reversal",
+    ]
     id: uuid.UUID
     at: datetime
     description: str
@@ -64,10 +71,17 @@ class DashboardSummary(BaseModel):
     deliveries_value_in_period: Decimal
     payments_in_period: int
     payments_value_in_period: Decimal
+    deductions_in_period: int
+    deductions_value_in_period: Decimal
 
     # Global financial position
     outstanding_debt_total: Decimal
     available_credit_total: Decimal
+    # What has been withheld from members, net of reversals (all time).
+    deductions_total: Decimal
+    # debt - credit - deductions: what the co-op actually owes across all
+    # members. Negative is arrears, i.e. members owing the co-op.
+    net_payable_total: Decimal
     pending_valuation_count: int
 
     # Charts

@@ -65,8 +65,18 @@ def test_statement_responds_with_the_documented_field_names(
     assert body["start"].startswith("2025-01-01")
     assert body["end"].startswith("2025-12-31")
     assert body["currency"] == "KES"
-    assert set(body["opening"]) == {"outstanding_debt", "available_credit"}
-    assert set(body["closing"]) == {"outstanding_debt", "available_credit"}
+    assert set(body["opening"]) == {
+        "outstanding_debt",
+        "available_credit",
+        "deductions_total",
+        "net_payable",
+    }
+    assert set(body["closing"]) == {
+        "outstanding_debt",
+        "available_credit",
+        "deductions_total",
+        "net_payable",
+    }
     assert isinstance(body["entries"], list)
     assert len(body["entries"]) == 1
 
@@ -79,6 +89,8 @@ def test_statement_responds_with_the_documented_field_names(
         "description",
         "debt_after",
         "credit_after",
+        "deductions_after",
+        "net_after",
     }
 
 
@@ -105,6 +117,8 @@ def test_statement_closing_matches_the_balance_endpoint(
     ).json()
     assert closing["outstanding_debt"] == balance["outstanding_debt"]
     assert closing["available_credit"] == balance["available_credit"]
+    assert closing["deductions_total"] == balance["deductions_total"]
+    assert closing["net_payable"] == balance["net_payable"]
 
 
 def test_statement_rejects_an_inverted_range(client, clerk_token, farmer):

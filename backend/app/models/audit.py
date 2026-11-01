@@ -50,12 +50,15 @@ AUDIT_ACTIONS = (
     "user.create",
     "user.password_change",
     "user.update",
+    "deduction.create",
+    "deduction.reverse",
 )
 
 # Entity types an action can describe. Display-only as well.
 AUDIT_ENTITY_TYPES = (
     "delivery",
     "payment",
+    "deduction",
     "rate",
     "farmer",
     "user",
