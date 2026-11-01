@@ -2,7 +2,7 @@
  * Application shell: sidebar navigation, sticky top bar, mobile tab bar.
  *
  * Navigation is role-aware:
- * - All users see: Dashboard, Farmers, Deliveries, Payments.
+ * - All users see: Dashboard, Farmers, Deliveries, Payments, Deductions.
  * - Admins additionally see: Notifications, Produce & Rates.
  *
  * The clerk-in-the-field usage is the priority, so the mobile layout is built
@@ -19,6 +19,7 @@ import {
   LogOut,
   Moon,
   Package,
+  Receipt,
   ScrollText,
   Sprout,
   Sun,
@@ -51,6 +52,7 @@ const NAV: NavGroup[] = [
       { to: '/farmers', label: 'Farmers', icon: Users, primary: true },
       { to: '/deliveries', label: 'Deliveries', icon: Package, primary: true },
       { to: '/payments', label: 'Payments', icon: Banknote, primary: true },
+      { to: '/deductions', label: 'Deductions', icon: Receipt, primary: true },
     ],
   },
   {

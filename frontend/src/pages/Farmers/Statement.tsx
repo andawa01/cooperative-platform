@@ -26,12 +26,14 @@ import type { StatementEntry, StatementEntryType } from '@/types/api'
 
 const TYPE_META: Record<
   StatementEntryType,
-  { label: string; tone: 'success' | 'danger' | 'info' | 'neutral' }
+  { label: string; tone: 'success' | 'danger' | 'info' | 'warning' | 'neutral' }
 > = {
   delivery: { label: 'Delivery', tone: 'success' },
   delivery_reversal: { label: 'Delivery reversal', tone: 'danger' },
   payment: { label: 'Payment', tone: 'info' },
   payment_reversal: { label: 'Payment reversal', tone: 'danger' },
+  deduction: { label: 'Deduction', tone: 'warning' },
+  deduction_reversal: { label: 'Deduction reversal', tone: 'danger' },
 }
 
 // Default window: the last year. A co-op's cycle is seasonal, so a calendar
@@ -153,6 +155,34 @@ export default function FarmerStatement() {
         </span>
       ),
     },
+    {
+      key: 'withheld',
+      header: 'Withheld after',
+      align: 'right',
+      hideBelow: 'lg',
+      render: (entry) => (
+        <span className="text-stone-600">
+          {formatMoney(entry.deductions_after, currency)}
+        </span>
+      ),
+    },
+    {
+      key: 'net',
+      header: 'Net payable',
+      align: 'right',
+      hideBelow: 'xl',
+      render: (entry) => (
+        <span
+          className={
+            Number(entry.net_after) < 0
+              ? 'font-medium text-danger-ink'
+              : 'font-medium text-foreground'
+          }
+        >
+          {formatMoney(entry.net_after, currency)}
+        </span>
+      ),
+    },
   ]
 
   return (
@@ -240,6 +270,22 @@ export default function FarmerStatement() {
                     {formatMoney(data.opening.available_credit, currency)}
                   </div>
                 </div>
+                <div>
+                  <div className="text-[11px] font-semibold tracking-wider text-warning-ink/80 uppercase">
+                    Withheld
+                  </div>
+                  <div className="mt-1 text-xl font-semibold text-warning-ink tabular-nums">
+                    {formatMoney(data.opening.deductions_total, currency)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold tracking-wider text-primary-ink/80 uppercase">
+                    Net payable
+                  </div>
+                  <div className="mt-1 text-xl font-semibold text-primary-ink tabular-nums">
+                    {formatMoney(data.opening.net_payable, currency)}
+                  </div>
+                </div>
               </CardBody>
             </Card>
 
@@ -265,6 +311,28 @@ export default function FarmerStatement() {
                     {formatMoney(data.closing.available_credit, currency)}
                   </div>
                 </div>
+                <div>
+                  <div className="text-[11px] font-semibold tracking-wider text-warning-ink/80 uppercase">
+                    Withheld
+                  </div>
+                  <div className="mt-1 text-xl font-semibold text-warning-ink tabular-nums">
+                    {formatMoney(data.closing.deductions_total, currency)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold tracking-wider text-primary-ink/80 uppercase">
+                    Net payable
+                  </div>
+                  <div
+                    className={`mt-1 text-xl font-semibold tabular-nums ${
+                      Number(data.closing.net_payable) < 0
+                        ? 'text-danger-ink'
+                        : 'text-primary-ink'
+                    }`}
+                  >
+                    {formatMoney(data.closing.net_payable, currency)}
+                  </div>
+                </div>
               </CardBody>
             </Card>
           </div>
@@ -274,7 +342,10 @@ export default function FarmerStatement() {
             columns={columns}
             rows={data.entries}
             rowKey={(entry) =>
-              entry.delivery_id ?? entry.payment_id ?? `${entry.date}-${entry.type}`
+              entry.delivery_id ??
+              entry.payment_id ??
+              entry.deduction_id ??
+              `${entry.date}-${entry.type}`
             }
             empty={{
               title: 'Nothing in this period',

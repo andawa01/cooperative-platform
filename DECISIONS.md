@@ -2250,3 +2250,99 @@ Pinned by `app/tests/test_transaction.py`.
   check per user per request or move revocation into the `ver` claim alone.
 - If we add refresh tokens, `jti` revocation becomes the refresh-token store's
   job and the denylist shrinks to the access-token lifetime (minutes).
+
+## D-031 — Deductions: money withheld, not money owed
+
+A cooperative withholds before it pays. Transport from the collection point,
+cess to the county, recovery of input credit, a loan instalment, the
+membership fee, withholding tax. Without a place to record that, the ledger
+says a farmer is owed the full value of their produce and every settlement is
+done off-system, in a notebook.
+
+**Decision — a deduction is a third signing direction, and it changes neither
+debt nor credit.**
+
+The obvious-looking alternative was to model a deduction as a payment with a
+negative amount. That is wrong, and the reason is worth stating: a payment is
+money the co-op *received on the member's behalf*, so it raises
+`available_credit` and is allocatable against future deliveries. A deduction is
+money the member *owes the co-op or asked it to remit elsewhere*. It is never
+credit — the co-op cannot pay it out later — so folding it into `payments`
+would let a member "spend" money that was withheld from them.
+
+So the ledger gains one derived figure and no new arithmetic:
+
+```
+outstanding_debt = Σ delivery value − Σ allocations
+available_credit = Σ payments − Σ allocations
+deductions_total = Σ deduction amounts          (charges net of reversals)
+net_payable      = outstanding_debt − available_credit − deductions_total
+```
+
+`net_payable` is the number a settlement actually hands over, and it can go
+negative — that is arrears, and it is the case deductions exist to make
+reachable. Before this, a member who owed the co-op simply had no
+representation; `net_payable < 0` is now a query.
+
+`deductions_total` is deliberately **not** folded into `outstanding_debt`.
+Keep the two separate and a screen can say "we owe you 4,000, of which 1,200 is
+transport and cess, so 2,800 is yours". Merge them and that sentence becomes
+unrecoverable, because the reason codes are gone.
+
+**Decision — reversals are same-table negative rows, as everywhere else.**
+
+`reversal_of_id` points at the original; the amount is negative; aggregation is
+`SUM(amount)` and the sign does the work. A unique constraint on
+`reversal_of_id` means one reversal per charge, enforced by the database rather
+than by a check-then-insert in Python. A reversal copies the original's
+`applied_at`, so a correction lands in the period it corrects (D-019), and the
+original keeps its amount and stays visible: a charge that was withdrawn is
+part of the record.
+
+**Decision — `reason_code` is a closed set, in the model and in the CHECK.**
+
+Eight values: transport, cess, input_credit, loan_recovery, membership_fee,
+withholding_tax, fine, other. Same reasoning as the audit action set — a typo
+in a money field must fail loudly instead of creating an unreportable row. The
+cost is that a real ninth reason needs a migration (woods: drop and recreate
+the CHECK).
+
+**Decision — clerks record, admins reverse.**
+
+Recording is the field action and blocking it would push the work back into the
+notebook. Reversal moves money back into a member's payable, so it is
+supervisory. Same split as payments (D-020), for the same reason.
+
+**One bug found while testing:**
+
+The first version ordered statement events by `(date, kind, id)`. A reversal
+copies its original's `applied_at`, so the two always tie, and the UUID
+tie-break sometimes put the reversal *before* its charge — the running
+withheld total dipped negative and then recovered, for no reason a reader could
+see. Deductions now rank `deduction` before `deduction_reversal` explicitly.
+Payments have the same latent tie and are left alone here: changing their order
+is a separate decision with its own test, not a side effect of this one.
+
+**Verified:**
+- `pytest app/tests` — 123 tests pass, including 20 new deduction tests
+  (record, closed-set reason, positive amount, permissions, double reversal,
+  reversal-of-reversal, balance, statement, CSV, ordering).
+- `ruff check` and `ruff format --check` clean on `app/` and `scripts/`.
+- Migration `c7a3f1e05b84` creates the table and widens the audit action CHECK.
+
+**Consequences:**
+- `/farmers/{id}/balance` and the statement gained `deductions_total` and
+  `net_payable`; both are additive, so existing clients keep working.
+- The dashboard does not yet show withheld totals. It reads debt only, so its
+  figure is "owed before withholding" — accurate but incomplete.
+- A deduction is recorded as a fact; it does not allocate against a specific
+  delivery. If a co-op ever needs per-delivery withholding, that is a new
+  column (`delivery_id`) and a new decision, not a reinterpretation of this one.
+
+**Reversal triggers:**
+- If clerks start recording deductions that belong to one delivery, add
+  `delivery_id` and a per-delivery reconciliation report.
+- If `net_payable` negative goes unnoticed by the UI, add a dashboard tile for
+  members in arrears — the number exists and nobody is looking at it.
+- If a ninth reason code appears twice in one season, promote reason codes to a
+  table instead of a CHECK.

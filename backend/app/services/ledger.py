@@ -33,6 +33,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.deduction import Deduction
 from app.models.delivery import Delivery
 from app.models.payment import Payment, PaymentAllocation
 
@@ -47,6 +48,11 @@ class FarmerBalance:
     # money on account, available to allocate to future deliveries
     available_credit: Decimal
     pending_valuation_deliveries: int  # count; not in outstanding_debt
+    # total withheld from this member (charges net of their reversals)
+    deductions_total: Decimal
+    # what the co-op would actually hand over today. Negative means the
+    # member owes the co-op — arrears, which deductions make reachable.
+    net_payable: Decimal
 
 
 def _sum_delivery_value(db: Session, farmer_id: uuid.UUID) -> Decimal:
@@ -92,6 +98,21 @@ def _sum_net_payments(db: Session, farmer_id: uuid.UUID) -> Decimal:
     return value if value is not None else ZERO
 
 
+def _sum_net_deductions(db: Session, farmer_id: uuid.UUID) -> Decimal:
+    """
+    Total withheld from this farmer, INCLUDING reversals (negative rows).
+
+    Deliberately not filtered: a deduction that was withdrawn must stop
+    counting, and the signed row makes that automatic.
+    """
+    value = db.scalar(
+        select(func.coalesce(func.sum(Deduction.amount), ZERO)).where(
+            Deduction.farmer_id == farmer_id
+        )
+    )
+    return value if value is not None else ZERO
+
+
 def _count_pending_valuation(db: Session, farmer_id: uuid.UUID) -> int:
     """Number of deliveries awaiting valuation (rate_snapshot IS NULL)."""
     return (
@@ -115,16 +136,22 @@ def compute_balance(db: Session, farmer_id: uuid.UUID) -> FarmerBalance:
     total_delivery_value = _sum_delivery_value(db, farmer_id)
     total_allocated = _sum_net_allocations_for_farmer(db, farmer_id)
     total_paid = _sum_net_payments(db, farmer_id)
+    total_deductions = _sum_net_deductions(db, farmer_id)
     pending = _count_pending_valuation(db, farmer_id)
 
     outstanding_debt = total_delivery_value - total_allocated
     available_credit = total_paid - total_allocated
+    # Allocations cancel: what is handed over is produce value, less money
+    # already paid, less what was withheld.
+    net_payable = outstanding_debt - available_credit - total_deductions
 
     return FarmerBalance(
         outstanding_debt=outstanding_debt,
         allocated_to_deliveries=total_allocated,
         available_credit=available_credit,
         pending_valuation_deliveries=pending,
+        deductions_total=total_deductions,
+        net_payable=net_payable,
     )
 
 
@@ -138,9 +165,11 @@ def compute_balance_at(
     if inclusive:
         d_cond = Delivery.delivered_at <= as_of
         p_cond = Payment.paid_at <= as_of
+        x_cond = Deduction.applied_at <= as_of
     else:
         d_cond = Delivery.delivered_at < as_of
         p_cond = Payment.paid_at < as_of
+        x_cond = Deduction.applied_at < as_of
 
     delivery_value = (
         db.scalar(
@@ -175,9 +204,23 @@ def compute_balance_at(
         or ZERO
     )
 
+    deductions = (
+        db.scalar(
+            select(func.coalesce(func.sum(Deduction.amount), ZERO))
+            .where(Deduction.farmer_id == farmer_id)
+            .where(x_cond)
+        )
+        or ZERO
+    )
+
+    debt = delivery_value - allocations
+    credit = payments - allocations
+
     return FarmerBalance(
-        outstanding_debt=delivery_value - allocations,
+        outstanding_debt=debt,
         allocated_to_deliveries=allocations,
-        available_credit=payments - allocations,
+        available_credit=credit,
         pending_valuation_deliveries=0,
+        deductions_total=deductions,
+        net_payable=debt - credit - deductions,
     )

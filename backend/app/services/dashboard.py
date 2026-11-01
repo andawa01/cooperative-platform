@@ -36,6 +36,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models.deduction import Deduction
 from app.models.delivery import Delivery
 from app.models.farmer import Farmer, FarmerStatus
 from app.models.payment import Payment, PaymentAllocation
@@ -47,7 +48,11 @@ from app.schemas.dashboard import (
     DeliveriesDaily,
     FarmersByStatus,
 )
-from app.services.statement import describe_delivery, describe_payment
+from app.services.statement import (
+    describe_deduction,
+    describe_delivery,
+    describe_payment,
+)
 
 ZERO = Decimal("0.0000")
 
@@ -99,7 +104,7 @@ def _farmers(db: Session) -> tuple[int, FarmersByStatus]:
 
 def _financial_position(
     db: Session,
-) -> tuple[Decimal, Decimal, int]:
+) -> tuple[Decimal, Decimal, Decimal, int]:
     """
     Cooperative-wide counterpart of `ledger.compute_balance`.
 
@@ -141,6 +146,16 @@ def _financial_position(
         or ZERO
     )
 
+    # Withheld from members, reversals included (negative rows net out).
+    net_deductions = (
+        db.scalar(
+            select(func.coalesce(func.sum(Deduction.amount), ZERO)).select_from(
+                Deduction
+            )
+        )
+        or ZERO
+    )
+
     outstanding_debt = total_delivery_value - net_allocations
     available_credit = net_payments - net_allocations
 
@@ -153,7 +168,7 @@ def _financial_position(
         or 0
     )
 
-    return outstanding_debt, available_credit, pending_valuation
+    return outstanding_debt, available_credit, net_deductions, pending_valuation
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +178,7 @@ def _financial_position(
 
 def _period_totals(
     db: Session, first_instant: datetime
-) -> tuple[int, Decimal, int, Decimal]:
+) -> tuple[int, Decimal, int, Decimal, int, Decimal]:
     """
     (deliveries_in_period, deliveries_value_in_period,
      payments_in_period, payments_value_in_period)
@@ -214,7 +229,33 @@ def _period_totals(
         or ZERO
     )
 
-    return deliveries_count, deliveries_value, payments_count, payments_value
+    deductions_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(Deduction)
+            .where(Deduction.applied_at >= first_instant)
+            .where(Deduction.reversal_of_id.is_(None))
+        )
+        or 0
+    )
+
+    deductions_value = (
+        db.scalar(
+            select(func.coalesce(func.sum(Deduction.amount), ZERO))
+            .select_from(Deduction)
+            .where(Deduction.applied_at >= first_instant)
+        )
+        or ZERO
+    )
+
+    return (
+        deliveries_count,
+        deliveries_value,
+        payments_count,
+        payments_value,
+        deductions_count,
+        deductions_value,
+    )
 
 
 def _deliveries_by_line(db: Session, first_instant: datetime) -> list[DeliveriesByLine]:
@@ -317,8 +358,19 @@ def _recent_activity(db: Session) -> list[ActivityItem]:
             .limit(ACTIVITY_LIMIT)
         ).all()
     )
+    deductions = list(
+        db.scalars(
+            select(Deduction)
+            .order_by(Deduction.applied_at.desc(), Deduction.id.desc())
+            .limit(ACTIVITY_LIMIT)
+        ).all()
+    )
 
-    farmer_ids = {d.farmer_id for d in deliveries} | {p.farmer_id for p in payments}
+    farmer_ids = (
+        {d.farmer_id for d in deliveries}
+        | {p.farmer_id for p in payments}
+        | {x.farmer_id for x in deductions}
+    )
     line_ids = {d.produce_line_id for d in deliveries}
 
     farmers: dict[uuid.UUID, Farmer] = {}
@@ -382,6 +434,30 @@ def _recent_activity(db: Session) -> list[ActivityItem]:
             )
         )
 
+    for x in deductions:
+        farmer = farmers.get(x.farmer_id)
+        items.append(
+            (
+                x.applied_at,
+                ActivityItem(
+                    type=(
+                        "deduction_reversal"
+                        if x.reversal_of_id is not None
+                        else "deduction"
+                    ),
+                    id=x.id,
+                    at=x.applied_at,
+                    description=describe_deduction(x),
+                    # Withholding reduces the payout, so it reads negative in
+                    # the feed for the same reason it does on a statement.
+                    amount=-x.amount,
+                    currency=x.currency,
+                    farmer_id=x.farmer_id,
+                    farmer_name=farmer.full_name if farmer else "Unknown farmer",
+                ),
+            )
+        )
+
     # Newest first. Ties broken by id so the feed is stable across requests.
     items.sort(key=lambda pair: (pair[0], str(pair[1].id)), reverse=True)
     return [item for _, item in items[:ACTIVITY_LIMIT]]
@@ -399,6 +475,7 @@ def build_dashboard_summary(db: Session, period_days: int = 30) -> DashboardSumm
     (
         outstanding_debt_total,
         available_credit_total,
+        deductions_total,
         pending_valuation_count,
     ) = _financial_position(db)
     (
@@ -406,6 +483,8 @@ def build_dashboard_summary(db: Session, period_days: int = 30) -> DashboardSumm
         deliveries_value_in_period,
         payments_in_period,
         payments_value_in_period,
+        deductions_in_period,
+        deductions_value_in_period,
     ) = _period_totals(db, first_instant)
 
     return DashboardSummary(
@@ -418,8 +497,14 @@ def build_dashboard_summary(db: Session, period_days: int = 30) -> DashboardSumm
         deliveries_value_in_period=deliveries_value_in_period,
         payments_in_period=payments_in_period,
         payments_value_in_period=payments_value_in_period,
+        deductions_in_period=deductions_in_period,
+        deductions_value_in_period=deductions_value_in_period,
         outstanding_debt_total=outstanding_debt_total,
         available_credit_total=available_credit_total,
+        deductions_total=deductions_total,
+        net_payable_total=(
+            outstanding_debt_total - available_credit_total - deductions_total
+        ),
         pending_valuation_count=pending_valuation_count,
         deliveries_by_line=_deliveries_by_line(db, first_instant),
         deliveries_daily=_deliveries_daily(db, first_day, first_instant),

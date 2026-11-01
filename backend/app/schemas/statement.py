@@ -22,12 +22,19 @@ StatementEntryType = Literal[
     "delivery_reversal",
     "payment",
     "payment_reversal",
+    "deduction",
+    "deduction_reversal",
 ]
 
 
 class StatementOpening(BaseModel):
     outstanding_debt: Decimal
     available_credit: Decimal
+    # Withheld from the member up to this point (charges net of reversals).
+    deductions_total: Decimal
+    # What the co-op actually hands over: debt less credit less deductions.
+    # Negative means the member is in arrears to the co-op.
+    net_payable: Decimal
 
 
 class StatementEntry(BaseModel):
@@ -38,10 +45,13 @@ class StatementEntry(BaseModel):
     # At most one of these is set, depending on the type.
     delivery_id: uuid.UUID | None = None
     payment_id: uuid.UUID | None = None
+    deduction_id: uuid.UUID | None = None
     reversal_of_id: uuid.UUID | None = None
-    # Running pair AFTER this event.
+    # Running position AFTER this event.
     debt_after: Decimal
     credit_after: Decimal
+    deductions_after: Decimal
+    net_after: Decimal
 
 
 class FarmerStatementResponse(BaseModel):

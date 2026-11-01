@@ -108,8 +108,12 @@ def test_response_shape(client, admin):
         "deliveries_value_in_period",
         "payments_in_period",
         "payments_value_in_period",
+        "deductions_in_period",
+        "deductions_value_in_period",
         "outstanding_debt_total",
         "available_credit_total",
+        "deductions_total",
+        "net_payable_total",
         "pending_valuation_count",
         "deliveries_by_line",
         "deliveries_daily",
@@ -118,6 +122,8 @@ def test_response_shape(client, admin):
     # Money crosses the wire as a string, never a float (D-010).
     assert isinstance(body["outstanding_debt_total"], str)
     assert isinstance(body["available_credit_total"], str)
+    assert isinstance(body["deductions_total"], str)
+    assert isinstance(body["net_payable_total"], str)
     assert body["period_days"] == 30
     assert set(body["farmers_by_status"]) == {
         "pending_verification",

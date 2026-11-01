@@ -6,6 +6,7 @@ from app.api import (
     audit,
     auth,
     dashboard,
+    deductions,
     deliveries,
     farmers,
     health,
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router)
     app.include_router(audit.router)
     app.include_router(users.router)
+    app.include_router(deductions.router)
 
     return app
 
