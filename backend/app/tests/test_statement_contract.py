@@ -121,7 +121,5 @@ def test_statement_requires_authentication(client, farmer):
 
 
 def test_unknown_farmer_is_404(client, clerk_token):
-    r = client.get(
-        f"/farmers/{uuid.uuid4()}/statement", headers=_auth(clerk_token)
-    )
+    r = client.get(f"/farmers/{uuid.uuid4()}/statement", headers=_auth(clerk_token))
     assert r.status_code == 404

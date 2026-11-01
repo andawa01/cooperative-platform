@@ -72,9 +72,7 @@ def list_users(
         count_stmt = count_stmt.where(condition)
 
     stmt = (
-        stmt.order_by(User.created_at.asc(), User.id.asc())
-        .limit(limit)
-        .offset(offset)
+        stmt.order_by(User.created_at.asc(), User.id.asc()).limit(limit).offset(offset)
     )
 
     items = list(db.scalars(stmt).all())
