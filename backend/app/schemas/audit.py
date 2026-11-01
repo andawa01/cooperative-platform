@@ -6,8 +6,11 @@ Audit schemas — response shapes for the admin audit endpoint.
 model every action's snapshot as a discriminated union would buy type safety
 at the read path and cost a schema edit on every new action.
 
-`actor_name` is resolved server-side so the screen never issues a lookup per
-row (D-027).
+`actor_name` and `entity_label` are resolved server-side so the screen never
+issues a lookup per row (D-027). `entity_label` is the human name of the thing
+that changed — "Grace Wambui — Coffee" rather than `e0ef997f…`. It is derived,
+not stored: the trail records the id, and renaming a farmer must not require
+rewriting history.
 """
 
 import uuid
@@ -22,6 +25,9 @@ class AuditEntryResponse(BaseModel):
     action: str
     entity_type: str
     entity_id: uuid.UUID
+    # e.g. "Grace Wambui — Coffee". None when the row has since been deleted
+    # or the type is not one we can name; the screen falls back to the id.
+    entity_label: str | None
     actor_id: uuid.UUID | None
     actor_name: str | None
     before: dict[str, Any] | None

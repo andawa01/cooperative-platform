@@ -390,6 +390,8 @@ export interface AuditEntry {
   action: string
   entity_type: string
   entity_id: string
+  /** Human name of the thing that changed, resolved server-side. */
+  entity_label: string | null
   actor_id: string | null
   actor_name: string | null
   before: Record<string, unknown> | null

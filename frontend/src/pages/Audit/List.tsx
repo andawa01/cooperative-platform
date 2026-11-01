@@ -10,7 +10,7 @@
  * list of JSON blobs is unreadable at a glance.
  */
 import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable, type DataColumn } from '@/components/common/DataTable'
 import { ExportButton } from '@/components/common/ExportButton'
@@ -40,9 +40,39 @@ const ACTIONS = [
   'user.create',
   'user.update',
   'user.password_change',
+  'deduction.create',
+  'deduction.reverse',
 ]
 
-const ENTITY_TYPES = ['delivery', 'payment', 'rate', 'farmer', 'user']
+const ENTITY_TYPES = ['delivery', 'payment', 'deduction', 'rate', 'farmer', 'user']
+
+/**
+ * The verb alone. The entity column already says what was acted on, so
+ * "rate.create" under "Maize — 120 KES/kg" reads as a stutter; "Create"
+ * reads as a sentence. Full technical names live in the filter dropdown and
+ * in the tooltip, for the rare reader who needs the exact action string.
+ */
+const ACTION_LABELS: Record<string, string> = {
+  'delivery.create': 'Create',
+  'delivery.value': 'Valued',
+  'delivery.reverse': 'Reversal',
+  'payment.create': 'Create',
+  'payment.reverse': 'Reversal',
+  'rate.create': 'Create',
+  'farmer.create': 'Create',
+  'farmer.update': 'Updated',
+  'farmer.verify': 'Verified',
+  'farmer.archive': 'Archived',
+  'user.create': 'Create',
+  'user.update': 'Updated',
+  'user.password_change': 'Password change',
+  'deduction.create': 'Create',
+  'deduction.reverse': 'Reversal',
+}
+
+function actionLabel(action: string): string {
+  return ACTION_LABELS[action] ?? action
+}
 
 function actionTone(action: string): 'success' | 'danger' | 'info' | 'warning' | 'neutral' {
   if (action.endsWith('.reverse')) return 'danger'
@@ -52,6 +82,28 @@ function actionTone(action: string): 'success' | 'danger' | 'info' | 'warning' |
   if (action.endsWith('.update')) return 'info'
   if (action.endsWith('.password_change')) return 'warning'
   return 'neutral'
+}
+
+/**
+ * Where a change happened, in clickable form.
+ *
+ * Not every entity has its own screen: rates live inside a produce line and a
+ * user is managed from the users list, so those return undefined and the row
+ * simply does not navigate. A dead link would be worse than no link.
+ */
+function recordPath(entry: AuditEntry): string | undefined {
+  switch (entry.entity_type) {
+    case 'delivery':
+      return `/deliveries/${entry.entity_id}`
+    case 'payment':
+      return `/payments/${entry.entity_id}`
+    case 'deduction':
+      return `/deductions/${entry.entity_id}`
+    case 'farmer':
+      return `/farmers/${entry.entity_id}`
+    default:
+      return undefined
+  }
 }
 
 function Snapshot({
@@ -93,9 +145,11 @@ const columns: DataColumn<AuditEntry>[] = [
     header: 'Action',
     render: (entry) => (
       <div className="min-w-0">
-        <StatusBadge tone={actionTone(entry.action)} dot={false}>
-          {entry.action}
-        </StatusBadge>
+        <span title={entry.action}>
+          <StatusBadge tone={actionTone(entry.action)} dot={false}>
+            {actionLabel(entry.action)}
+          </StatusBadge>
+        </span>
         <div className="mt-0.5 text-xs text-muted-foreground sm:hidden">
           {formatDateTime(entry.created_at)}
         </div>
@@ -115,25 +169,36 @@ const columns: DataColumn<AuditEntry>[] = [
   {
     key: 'entity',
     header: 'Entity',
-    hideBelow: 'md',
-    render: (entry) => (
+    hideBelow: 'sm',
+    // The name, and nothing else. An id on the row is noise a manager cannot
+    // act on; the id lives in the expanded panel for whoever needs to
+    // cross-reference a record.
+    render: (entry) => {
+      const path = recordPath(entry)
+      return (
       <div className="min-w-0">
-        <span className="text-stone-600">{entry.entity_type}</span>
-        <div className="font-mono text-[11px] text-muted-foreground">
-          {entry.entity_id.slice(0, 8)}
+        {entry.entity_label ? (
+          path ? (
+            <Link
+              to={path}
+              className="block truncate text-stone-700 hover:text-primary-ink hover:underline"
+            >
+              {entry.entity_label}
+            </Link>
+          ) : (
+            <div className="truncate text-stone-700">{entry.entity_label}</div>
+          )
+        ) : (
+          <div className="truncate text-muted-foreground italic">
+            record no longer exists
+          </div>
+        )}
+        <div className="mt-0.5 text-[11px] text-muted-foreground capitalize">
+          {entry.entity_type}
         </div>
       </div>
-    ),
-  },
-  {
-    key: 'request',
-    header: 'Request',
-    hideBelow: 'xl',
-    render: (entry) => (
-      <span className="font-mono text-[11px] text-muted-foreground">
-        {entry.request_id ?? '—'}
-      </span>
-    ),
+      )
+    },
   },
 ]
 
@@ -200,9 +265,24 @@ export default function AuditList() {
         error={error ? (error as Error).message : null}
         onRetry={() => refetch()}
         renderExpanded={(entry) => (
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Snapshot label="Before" value={entry.before} />
-            <Snapshot label="After" value={entry.after} />
+          <div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Snapshot label="Before" value={entry.before} />
+              <Snapshot label="After" value={entry.after} />
+            </div>
+            {/* Machine identifiers belong here, not on the row: an auditor
+                may need to match a request against a server log, and nobody
+                else ever reads these. */}
+            <div className="mt-3 flex flex-col gap-1 border-t border-border/60 pt-2.5 text-[11px] text-muted-foreground sm:flex-row sm:gap-6">
+              <span>
+                Record{' '}
+                <span className="font-mono">{entry.entity_id}</span>
+              </span>
+              <span>
+                Request{' '}
+                <span className="font-mono">{entry.request_id ?? '—'}</span>
+              </span>
+            </div>
           </div>
         )}
         empty={{
@@ -242,8 +322,7 @@ export default function AuditList() {
 
             {entityId && (
               <span className="text-xs text-muted-foreground">
-                Filtered to record{' '}
-                <span className="font-mono">{entityId.slice(0, 8)}</span>
+                Filtered to a single record
               </span>
             )}
           </>

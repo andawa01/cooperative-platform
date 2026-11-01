@@ -517,3 +517,56 @@ def test_audit_rows_cannot_be_modified_or_deleted(
     # The failed statement aborts the transaction; clear it so the fixture's
     # teardown is a clean rollback rather than an error.
     db.rollback()
+
+
+def test_entries_name_the_entity_in_words(client, admin_token, clerk_token, farmer):
+    """
+    An id is not a name.
+
+    `e0ef997f` tells a manager nothing — the trail has to say *what* changed,
+    or the screen is only usable by someone with a database console. The label
+    is derived on read, so it stays correct if the farmer is later renamed.
+    """
+    from datetime import UTC, datetime
+
+    r = client.post(
+        "/deductions",
+        json={
+            "farmer_id": str(farmer.id),
+            "amount": "250.0000",
+            "currency": "KES",
+            "reason_code": "transport",
+            "applied_at": datetime.now(UTC).isoformat(),
+        },
+        headers=_auth(clerk_token),
+    )
+    assert r.status_code == 201, r.text
+
+    entries = _entries(
+        client, admin_token, entity_type="deduction", entity_id=r.json()["id"]
+    )
+    assert entries[0]["entity_label"] == f"{farmer.full_name} — 250 KES transport"
+
+
+def test_rate_entries_name_the_produce_line(client, admin_token, produce_line):
+    """
+    The exact row that made this a bug report: `rate.create` on a bare UUID.
+
+    A rate is meaningful as "Coffee — 50 KES/kg", not as `e0ef997f`.
+    """
+    r = client.post(
+        f"/produce-lines/{produce_line.id}/rates",
+        json={
+            "rate_per_unit": "50.0000",
+            "currency": "KES",
+            "effective_from": "2025-01-01",
+        },
+        headers=_auth(admin_token),
+    )
+    assert r.status_code < 300, r.text
+    rate_id = r.json()["new_rate"]["id"]
+
+    entries = _entries(client, admin_token, entity_type="rate", entity_id=rate_id)
+
+    assert entries[0]["action"] == "rate.create"
+    assert entries[0]["entity_label"] == f"{produce_line.name} — 50 KES/kg"
