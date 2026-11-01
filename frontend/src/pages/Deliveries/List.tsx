@@ -4,10 +4,12 @@ import { Plus } from 'lucide-react'
 
 import { ButtonLink } from '@/components/common/Button'
 import { DataTable, type DataColumn } from '@/components/common/DataTable'
+import { ExportButton } from '@/components/common/ExportButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { useDeliveries } from '@/hooks/useDeliveries'
 import { formatMoney } from '@/lib/auth'
+import { formatDate } from '@/lib/datetime'
 import type { Delivery } from '@/types/api'
 
 const DEFAULT_PAGE_SIZE = 10
@@ -27,7 +29,7 @@ const columns: DataColumn<Delivery>[] = [
     hideBelow: 'md',
     render: (d) => (
       <span className="text-stone-600 tabular-nums">
-        {new Date(d.delivered_at).toLocaleDateString()}
+        {formatDate(d.delivered_at)}
       </span>
     ),
   },
@@ -38,7 +40,7 @@ const columns: DataColumn<Delivery>[] = [
       <div className="min-w-0">
         <div className="truncate font-medium text-foreground">{d.farmer_name}</div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground md:hidden">
-          {new Date(d.delivered_at).toLocaleDateString()} ·{' '}
+          {formatDate(d.delivered_at)} ·{' '}
           {d.produce_line_name}
         </div>
       </div>
@@ -177,6 +179,14 @@ export default function DeliveriesList() {
               />
               Include reversals
             </label>
+            <ExportButton
+              className="sm:ml-auto"
+              path="/deliveries/export"
+              params={{
+                unvalued_only: unvaluedOnly || undefined,
+                include_reversals: includeReversals || undefined,
+              }}
+            />
           </>
         }
         pagination={{

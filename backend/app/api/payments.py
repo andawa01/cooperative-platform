@@ -8,12 +8,14 @@ Permissions:
 """
 
 import uuid
+from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.csv import MAX_EXPORT_ROWS, csv_response
 from app.api.deps import get_current_user, require_role
 from app.db.session import get_db
 from app.models.farmer import Farmer
@@ -190,6 +192,70 @@ def list_payments(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/export", response_class=Response)
+def export_payments(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    farmer_id: uuid.UUID | None = Query(default=None),
+    include_reversals: bool = Query(default=False),
+):
+    """
+    Payments matching the current filter, as CSV.
+
+    Declared before `/{payment_id}` so the literal path wins. Farmer names are
+    resolved in one bulk query for the whole export, never one per row.
+    """
+    items, _total = payment_service.list_payments(
+        db,
+        farmer_id=farmer_id,
+        include_reversals=include_reversals,
+        limit=MAX_EXPORT_ROWS,
+        offset=0,
+    )
+
+    farmer_ids = {p.farmer_id for p in items}
+    farmers = (
+        {f.id: f for f in db.scalars(select(Farmer).where(Farmer.id.in_(farmer_ids)))}
+        if farmer_ids
+        else {}
+    )
+
+    return csv_response(
+        filename=f"payments-{date.today().isoformat()}.csv",
+        header=[
+            "id",
+            "paid_at",
+            "farmer",
+            "amount",
+            "currency",
+            "method",
+            "reference",
+            "status",
+            "kind",
+            "recorded_at",
+            "notes",
+        ],
+        rows=[
+            (
+                p.id,
+                p.paid_at,
+                farmers[p.farmer_id].full_name
+                if p.farmer_id in farmers
+                else "Unknown farmer",
+                p.amount,
+                p.currency,
+                p.method,
+                p.reference,
+                p.status,
+                "reversal" if p.reversal_of_id else "payment",
+                p.recorded_at,
+                p.notes,
+            )
+            for p in items
+        ],
     )
 
 

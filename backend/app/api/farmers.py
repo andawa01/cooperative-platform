@@ -11,10 +11,12 @@ Permissions:
 """
 
 import uuid
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
+from app.api.csv import MAX_EXPORT_ROWS, csv_response
 from app.api.deps import get_current_user, require_role
 from app.db.session import get_db
 from app.models.farmer import FarmerStatus
@@ -102,6 +104,61 @@ def list_farmers(
         offset=offset,
     )
     return FarmerListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/export", response_class=Response)
+def export_farmers(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    status_filter: FarmerStatus | None = Query(default=None, alias="status"),
+    search: str | None = Query(default=None, max_length=100),
+    include_merged: bool = Query(default=False),
+):
+    """
+    Every farmer matching the current filter, as CSV.
+
+    Takes the same filters as the list endpoint, so what a clerk exports is
+    what they were looking at. Declared before `/{farmer_id}` so the path
+    matches this route rather than a UUID lookup.
+    """
+    items, _total = farmer_service.list_farmers(
+        db,
+        status=status_filter,
+        search=search,
+        include_merged=include_merged,
+        limit=MAX_EXPORT_ROWS,
+        offset=0,
+    )
+    return csv_response(
+        filename=f"farmers-{date.today().isoformat()}.csv",
+        header=[
+            "id",
+            "first_name",
+            "last_name",
+            "phone",
+            "national_id",
+            "date_of_birth",
+            "location",
+            "status",
+            "verified_at",
+            "registered_at",
+        ],
+        rows=[
+            (
+                farmer.id,
+                farmer.first_name,
+                farmer.last_name,
+                farmer.phone,
+                farmer.national_id,
+                farmer.date_of_birth,
+                farmer.location,
+                farmer.status,
+                farmer.verified_at,
+                farmer.created_at,
+            )
+            for farmer in items
+        ],
+    )
 
 
 @router.get("/{farmer_id}", response_model=FarmerResponse)

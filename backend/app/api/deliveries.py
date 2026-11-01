@@ -11,12 +11,13 @@ Permissions:
 
 import uuid
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.csv import MAX_EXPORT_ROWS, csv_response
 from app.api.deps import get_current_user, require_role
 from app.core.config import settings
 from app.db.session import get_db
@@ -194,6 +195,73 @@ def list_deliveries(
     )
     return DeliveryListResponse(
         items=_serialize_many(db, items), total=total, limit=limit, offset=offset
+    )
+
+
+@router.get("/deliveries/export", response_class=Response)
+def export_deliveries(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    farmer_id: uuid.UUID | None = Query(default=None),
+    produce_line_id: uuid.UUID | None = Query(default=None),
+    recorded_by_id: uuid.UUID | None = Query(default=None),
+    delivered_from: datetime | None = Query(default=None),
+    delivered_to: datetime | None = Query(default=None),
+    include_reversals: bool = Query(default=False),
+    unvalued_only: bool = Query(default=False),
+):
+    """
+    Deliveries matching the current filter, as CSV.
+
+    Declared before `/deliveries/{delivery_id}` so the literal path wins over
+    the UUID lookup. Names come from the same bulk join the list uses.
+    """
+    items, _total = delivery_service.list_deliveries(
+        db,
+        farmer_id=farmer_id,
+        produce_line_id=produce_line_id,
+        recorded_by_id=recorded_by_id,
+        delivered_from=delivered_from,
+        delivered_to=delivered_to,
+        include_reversals=include_reversals,
+        unvalued_only=unvalued_only,
+        limit=MAX_EXPORT_ROWS,
+        offset=0,
+    )
+    rows = _serialize_many(db, items)
+    return csv_response(
+        filename=f"deliveries-{date.today().isoformat()}.csv",
+        header=[
+            "id",
+            "delivered_at",
+            "farmer",
+            "produce_line",
+            "quantity",
+            "rate_snapshot",
+            "amount",
+            "currency",
+            "kind",
+            "recorded_at",
+            "location",
+            "notes",
+        ],
+        rows=[
+            (
+                d.id,
+                d.delivered_at,
+                d.farmer_name,
+                d.produce_line_name,
+                d.quantity,
+                d.rate_snapshot,
+                d.amount,
+                d.currency_snapshot,
+                "reversal" if d.reversal_of_id else "delivery",
+                d.recorded_at,
+                d.location,
+                d.notes,
+            )
+            for d in rows
+        ],
     )
 
 

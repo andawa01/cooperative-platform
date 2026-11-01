@@ -28,6 +28,7 @@ import {
 } from '@/hooks/useFarmers'
 import { useAuth } from '@/hooks/useAuth'
 import { formatMoney } from '@/lib/auth'
+import { formatDate, formatDateTime } from '@/lib/datetime'
 
 export default function FarmerDetail() {
   const { id } = useParams<{ id: string }>()
@@ -214,19 +215,17 @@ export default function FarmerDetail() {
 
             <dl className="space-y-3">
               <DetailRow label="National ID" value={f.national_id ?? '—'} />
-              <DetailRow label="Date of birth" value={f.date_of_birth ?? '—'} />
+              <DetailRow label="Date of birth" value={formatDate(f.date_of_birth)} />
               <DetailRow label="Location" value={f.location ?? '—'} />
               <DetailRow
                 label="Verified"
                 value={
-                  f.verified_at
-                    ? new Date(f.verified_at).toLocaleString()
-                    : 'Not verified'
+                  f.verified_at ? formatDateTime(f.verified_at) : 'Not verified'
                 }
               />
               <DetailRow
                 label="Registered"
-                value={new Date(f.created_at).toLocaleString()}
+                value={formatDateTime(f.created_at)}
               />
             </dl>
 

@@ -3,10 +3,12 @@ import { Plus } from 'lucide-react'
 
 import { ButtonLink } from '@/components/common/Button'
 import { DataTable, type DataColumn } from '@/components/common/DataTable'
+import { ExportButton } from '@/components/common/ExportButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { usePayments } from '@/hooks/usePayments'
 import { formatMoney, parseMoney } from '@/lib/auth'
+import { formatDate } from '@/lib/datetime'
 import type { Payment, PaymentMethod } from '@/types/api'
 
 const DEFAULT_PAGE_SIZE = 10
@@ -25,7 +27,7 @@ const columns: DataColumn<Payment>[] = [
     hideBelow: 'sm',
     render: (p) => (
       <span className="text-stone-600 tabular-nums">
-        {new Date(p.paid_at).toLocaleDateString()}
+        {formatDate(p.paid_at)}
       </span>
     ),
   },
@@ -36,7 +38,7 @@ const columns: DataColumn<Payment>[] = [
       <div className="min-w-0">
         <div className="truncate font-medium text-foreground">{p.farmer_name}</div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground sm:hidden">
-          {new Date(p.paid_at).toLocaleDateString()} ·{' '}
+          {formatDate(p.paid_at)} ·{' '}
           {METHOD_LABELS[p.method] ?? p.method}
         </div>
       </div>
@@ -134,18 +136,25 @@ export default function PaymentsList() {
           description: 'Record the first payment to get started.',
         }}
         toolbar={
-          <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-stone-600">
-            <input
-              type="checkbox"
-              checked={includeReversals}
-              onChange={(e) => {
-                setIncludeReversals(e.target.checked)
-                setOffset(0)
-              }}
-              className="h-3.5 w-3.5 rounded border-stone-300 accent-primary-600"
+          <>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-stone-600">
+              <input
+                type="checkbox"
+                checked={includeReversals}
+                onChange={(e) => {
+                  setIncludeReversals(e.target.checked)
+                  setOffset(0)
+                }}
+                className="h-3.5 w-3.5 rounded border-stone-300 accent-primary-600"
+              />
+              Include reversals
+            </label>
+            <ExportButton
+              className="sm:ml-auto"
+              path="/payments/export"
+              params={{ include_reversals: includeReversals || undefined }}
             />
-            Include reversals
-          </label>
+          </>
         }
         pagination={{
           limit: pageSize,

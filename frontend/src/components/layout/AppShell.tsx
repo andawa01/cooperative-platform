@@ -19,8 +19,10 @@ import {
   LogOut,
   Moon,
   Package,
+  ScrollText,
   Sprout,
   Sun,
+  UserCog,
   Users,
 } from 'lucide-react'
 
@@ -56,6 +58,8 @@ const NAV: NavGroup[] = [
     items: [
       { to: '/produce', label: 'Produce & Rates', icon: Sprout, adminOnly: true },
       { to: '/notifications', label: 'Notifications', icon: Bell, adminOnly: true },
+      { to: '/users', label: 'Users', icon: UserCog, adminOnly: true },
+      { to: '/audit', label: 'Audit log', icon: ScrollText, adminOnly: true },
       { to: '/account', label: 'Account', icon: KeyRound },
     ],
   },
@@ -85,7 +89,7 @@ export function AppShell() {
   return (
     <div className="min-h-screen bg-canvas">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border/70 bg-sidebar lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border/70 bg-sidebar lg:flex print:hidden">
         <div className="flex h-16 items-center gap-2.5 px-5">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-600 text-white shadow-xs">
             <Sprout className="h-4.5 w-4.5" />
@@ -174,9 +178,9 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="lg:pl-64">
+      <div className="lg:pl-64 print:pl-0">
         {/* Top bar */}
-        <header className="sticky top-0 z-20 border-b border-border/70 bg-card/80 backdrop-blur-md">
+        <header className="sticky top-0 z-20 border-b border-border/70 bg-card/80 backdrop-blur-md print:hidden">
           <div className="flex h-14 items-center justify-between gap-3 px-4 lg:h-16 lg:px-8">
             <div className="flex items-center gap-2 lg:hidden">
               <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary-600 text-white">
@@ -232,13 +236,13 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-7xl px-4 pt-6 pb-24 lg:px-8 lg:pt-8 lg:pb-12">
+        <main className="mx-auto max-w-7xl px-4 pt-6 pb-24 lg:px-8 lg:pt-8 lg:pb-12 print:max-w-none print:p-0">
           <Outlet />
         </main>
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-card/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-card/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden print:hidden">
         <div className="mx-auto flex max-w-lg items-stretch justify-around">
           {primaryItems.map((item) => (
             <NavLink

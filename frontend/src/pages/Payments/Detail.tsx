@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { usePayment, useReversePayment } from '@/hooks/usePayments'
 import { useFarmer } from '@/hooks/useFarmers'
 import { formatMoney } from '@/lib/auth'
+import { formatDateTime } from '@/lib/datetime'
 
 export default function PaymentDetail() {
   const { id } = useParams<{ id: string }>()
@@ -84,7 +85,7 @@ export default function PaymentDetail() {
             {farmer.data
               ? `${farmer.data.first_name} ${farmer.data.last_name}`
               : 'Loading…'}{' '}
-            · {new Date(p.paid_at).toLocaleString()}
+            · {formatDateTime(p.paid_at)}
           </>
         }
         action={
@@ -116,13 +117,10 @@ export default function PaymentDetail() {
             <DetailRow label="Amount" value={formatMoney(p.amount, p.currency)} />
             <DetailRow label="Method" value={p.method.replace('_', ' ')} />
             {p.reference && <DetailRow label="Reference" value={p.reference} />}
-            <DetailRow
-              label="Paid at"
-              value={new Date(p.paid_at).toLocaleString()}
-            />
+            <DetailRow label="Paid at" value={formatDateTime(p.paid_at)} />
             <DetailRow
               label="Recorded at"
-              value={new Date(p.recorded_at).toLocaleString()}
+              value={formatDateTime(p.recorded_at)}
             />
             <DetailRow
               label="Unallocated"

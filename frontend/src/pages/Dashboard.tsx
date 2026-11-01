@@ -25,6 +25,7 @@ import { StatCard } from '@/components/common/StatCard'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { useDashboardSummary } from '@/hooks/useDashboard'
 import { formatMoney, parseMoney } from '@/lib/auth'
+import { formatDate, formatDayMonth, formatTime } from '@/lib/datetime'
 
 const LINE_COLOURS = ['#15803d', '#0891b2', '#7c3aed', '#c2410c', '#be123c']
 
@@ -54,7 +55,7 @@ export default function Dashboard() {
 
   // Short labels for the daily chart so mobile isn't crowded.
   const dailyData = data.deliveries_daily.map((d) => ({
-    date: d.date.slice(5), // MM-DD
+    date: formatDayMonth(d.date), // dd/mm
     count: d.count,
     value: parseMoney(d.value),
   }))
@@ -83,10 +84,7 @@ export default function Dashboard() {
         description={
           <>
             Last {data.period_days} days · refreshed{' '}
-            {new Date(data.generated_at).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {formatTime(data.generated_at)}
           </>
         }
       />
@@ -419,7 +417,7 @@ function ActivityRow({
           {isReversal && <StatusBadge tone="danger">Reversal</StatusBadge>}
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {item.description} · {new Date(item.at).toLocaleDateString()}
+          {item.description} · {formatDate(item.at)}
         </p>
       </div>
       {item.amount && (

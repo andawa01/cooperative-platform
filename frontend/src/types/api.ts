@@ -40,6 +40,19 @@ export interface PasswordChangeRequest {
   new_password: string
 }
 
+export interface UserCreateRequest {
+  email: string
+  full_name: string
+  password: string
+  role?: UserRole
+}
+
+export interface UserUpdateRequest {
+  full_name?: string
+  role?: UserRole
+  is_active?: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Farmers
 // ---------------------------------------------------------------------------
@@ -304,6 +317,28 @@ export interface Notification {
   attempts: number
   last_error: string | null
   sent_at: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------------
+
+/**
+ * `before`/`after` are the fields that changed, not full rows, and the set
+ * differs per action (amount and rate for a payment, status and notes for a
+ * farmer). Hence `unknown` values rather than a discriminated union.
+ */
+export interface AuditEntry {
+  id: string
+  action: string
+  entity_type: string
+  entity_id: string
+  actor_id: string | null
+  actor_name: string | null
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
+  request_id: string | null
+  created_at: string
 }
 
 // ---------------------------------------------------------------------------

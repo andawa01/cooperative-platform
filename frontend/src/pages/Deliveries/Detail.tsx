@@ -21,6 +21,7 @@ import {
 import { useFarmer } from '@/hooks/useFarmers'
 import { useProduceLine } from '@/hooks/useProduceLines'
 import { formatMoney } from '@/lib/auth'
+import { formatDateTime } from '@/lib/datetime'
 
 export default function DeliveryDetail() {
   const { id } = useParams<{ id: string }>()
@@ -95,7 +96,7 @@ export default function DeliveryDetail() {
         description={
           <>
             {line.data?.name ?? 'Loading…'} ·{' '}
-            {new Date(d.delivered_at).toLocaleString()}
+            {formatDateTime(d.delivered_at)}
           </>
         }
         action={
@@ -179,11 +180,11 @@ export default function DeliveryDetail() {
               />
               <DetailRow
                 label="Delivered at"
-                value={new Date(d.delivered_at).toLocaleString()}
+                value={formatDateTime(d.delivered_at)}
               />
               <DetailRow
                 label="Recorded at"
-                value={new Date(d.recorded_at).toLocaleString()}
+                value={formatDateTime(d.recorded_at)}
               />
               {d.location && <DetailRow label="Location" value={d.location} />}
               {d.notes && <DetailRow label="Notes" value={d.notes} />}

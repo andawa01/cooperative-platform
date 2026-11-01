@@ -49,6 +49,7 @@ AUDIT_ACTIONS = (
     "farmer.archive",
     "user.create",
     "user.password_change",
+    "user.update",
 )
 
 # Entity types an action can describe. Display-only as well.
