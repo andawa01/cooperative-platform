@@ -12,6 +12,7 @@ from app.api import (
     health,
     notifications,
     payments,
+    payouts,
     produce,
     statements,
     users,
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(users.router)
     app.include_router(deductions.router)
+    app.include_router(payouts.router)
 
     return app
 

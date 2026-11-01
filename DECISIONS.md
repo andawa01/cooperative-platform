@@ -2346,3 +2346,73 @@ is a separate decision with its own test, not a side effect of this one.
   members in arrears — the number exists and nobody is looking at it.
 - If a ninth reason code appears twice in one season, promote reason codes to a
   table instead of a CHECK.
+
+## D-032 — Payout runs: a schedule, not a second ledger
+
+Cooperative payday is not one payment at a time. Four hundred members are paid
+on one date, from one approval, with one file handed to the bank or the M-Pesa
+portal. Recording those as four hundred separate payments — each typed by a
+clerk — is where the real-world process diverges from what this system did.
+
+**Decision — a run is an instruction; the `Payment` is the fact.**
+
+`payout_batches` + `payout_items` hold the intent: who, how much, approved by
+whom, and what happened to each row. Dispatching an item calls the *existing*
+payment service, so allocation (FIFO), the audit trail, the SMS queue and
+reversal all keep working. The run itself contributes nothing to
+`available_credit` or `outstanding_debt` — only the payments do. Any other
+design double-counts the money, and the first symptom would be a balance that
+drops twice for one payday.
+
+**Decision — the amount is snapshotted at creation, and never recomputed.**
+
+A member's payable moves whenever a delivery, payment or deduction is recorded.
+Once someone has been told "you are getting KES 3,980 on Thursday", a deduction
+keyed on Wednesday must not quietly change it. The item carries its own
+`amount`; the batch total is derived from items (never stored, D-010), so the
+run is a photograph, not a live query. Re-running the batch is how you get a
+new picture.
+
+**Decision — dispatch commits per item.**
+
+A run of 400 must not lose 399 good payments because number 400 hit a validation
+error. Each item is paid in its own transaction; a failure is written onto that
+item with its message, and the response reports `paid` / `failed` / `pending`
+counts rather than a single success flag. Double payment on retry is prevented
+by deriving the payment's idempotency key from the **item id**
+(`payout-{batch16}-{item16}`) — re-dispatching replays the existing payment
+instead of creating a second one. That key is the safety net, not the item
+status: status is the record, idempotency is the guarantee.
+
+**Decision — admins release, clerks read.**
+
+Creating, approving, dispatching and cancelling are admin-only. A clerk can
+read runs and export the file, because the counter needs to answer "have I been
+paid yet?" without escalating. Approval is deliberately separate from creation
+so two admins can be involved, which is the cheapest useful form of maker-checker
+(1.5 is the fuller version).
+
+**Decision — no sequential run number, and no pretending a rail exists.**
+
+`reference` is `RUN-{year}-{6 hex of the id}`. A true sequence needs a counter
+row or a Postgres sequence, and buys ordering we already get from `created_at`;
+the cost would be a lock on every run creation. It is unique, quotable down a
+phone line, and printed on both the file and the derived payments.
+
+Dispatching means the payments are recorded and the run can be exported. There
+is no gateway, so an item is `paid` because a payment exists — not because a
+vendor said so. When a real rail lands, its per-row result becomes the
+authority and these statuses get their meaning narrowed (a reversal trigger).
+
+**Trade-off recorded honestly:** building a run reads each candidate's payable
+through `ledger.compute_balance`, i.e. a handful of queries per member. A
+bespoke aggregate query would be faster and would be the first place the run's
+definition of "owed" could drift from the ledger's. Reuse wins at this scale.
+Reversal trigger: if a co-op exceeds ~1,000 members, add a bulk ledger query to
+`ledger.py` itself so both paths share one implementation.
+
+**Verified:** `pytest app/tests` passes — 142 total, 16 new payout tests (snapshot,
+exclusion, frozen amounts after a later delivery, permissions, approve/dispatch
+order, double dispatch, cancel, deduction-netted amounts, export file, audit
+rows). `ruff check` and `ruff format --check` clean. Migration
+`e5c8a13d7f92` applies to head.

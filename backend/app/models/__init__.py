@@ -20,6 +20,7 @@ from app.models.payment import (
     PaymentMethod,
     PaymentStatus,
 )
+from app.models.payout import PayoutBatch, PayoutItem, PayoutItemStatus, PayoutStatus
 from app.models.produce import ProduceLine, Rate
 from app.models.user import User
 
@@ -32,6 +33,10 @@ __all__ = [
     "Delivery",
     "Deduction",
     "DeductionReason",
+    "PayoutBatch",
+    "PayoutItem",
+    "PayoutItemStatus",
+    "PayoutStatus",
     "Payment",
     "PaymentMethod",
     "PaymentStatus",
