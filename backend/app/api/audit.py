@@ -12,10 +12,12 @@ obvious.
 """
 
 import uuid
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
+from app.api.csv import MAX_EXPORT_ROWS, csv_response
 from app.api.deps import require_role
 from app.db.session import get_db
 from app.models.audit import AUDIT_ACTIONS, AUDIT_ENTITY_TYPES
@@ -89,3 +91,66 @@ def list_audit(
         for entry, actor_name in rows
     ]
     return AuditListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/export", response_class=Response)
+def export_audit(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+    action: str | None = Query(default=None, max_length=64),
+    entity_type: str | None = Query(default=None, max_length=32),
+    entity_id: uuid.UUID | None = Query(default=None),
+    actor_id: uuid.UUID | None = Query(default=None),
+):
+    """
+    The filtered audit trail as CSV, for an external auditor.
+
+    `before`/`after` are flattened to compact JSON in a single column: an
+    auditor needs the evidence intact, not a paraphrase of it.
+    """
+    import json
+
+    _validated(action, AUDIT_ACTIONS, "action")
+    _validated(entity_type, AUDIT_ENTITY_TYPES, "entity_type")
+
+    rows, _total = audit_service.list_entries(
+        db,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        actor_id=actor_id,
+        limit=MAX_EXPORT_ROWS,
+        offset=0,
+    )
+
+    def _json(value: dict | None) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":")) if value else ""
+
+    return csv_response(
+        filename=f"audit-{date.today().isoformat()}.csv",
+        header=[
+            "created_at",
+            "action",
+            "entity_type",
+            "entity_id",
+            "actor",
+            "actor_id",
+            "before",
+            "after",
+            "request_id",
+        ],
+        rows=[
+            (
+                entry.created_at,
+                entry.action,
+                entry.entity_type,
+                entry.entity_id,
+                actor_name or "system",
+                entry.actor_id,
+                _json(entry.before),
+                _json(entry.after),
+                entry.request_id,
+            )
+            for entry, actor_name in rows
+        ],
+    )

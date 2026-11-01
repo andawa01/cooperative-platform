@@ -46,11 +46,14 @@ class StatementEntry(BaseModel):
 
 class FarmerStatementResponse(BaseModel):
     farmer_id: uuid.UUID
-    from_: datetime
-    to: datetime
+    # These were once named `from_`/`to` (a Python-keyword workaround) while
+    # the service passed `start=`/`end=`. Pydantic rejected the unknown
+    # keywords, so every request to this endpoint answered 500 — a bug no test
+    # covered until the statement screen tried to use it. Named to match both
+    # the service and the client.
+    start: datetime
+    end: datetime
     currency: str
     opening: StatementOpening
     entries: list[StatementEntry]
     closing: StatementOpening
-
-    model_config = {"populate_by_name": True}

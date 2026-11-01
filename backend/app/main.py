@@ -13,6 +13,7 @@ from app.api import (
     payments,
     produce,
     statements,
+    users,
 )
 from app.core.config import settings
 from app.core.logging import configure_logging, get_request_id
@@ -47,7 +48,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         # Both are read by the frontend: the replay flag and the id a clerk
         # can quote when reporting a failure.
-        expose_headers=["Idempotency-Replayed", "X-Request-ID"],
+        # Content-Disposition is exposed so CSV exports can use the filename
+        # the server chose rather than inventing one in the browser.
+        expose_headers=["Idempotency-Replayed", "X-Request-ID", "Content-Disposition"],
     )
 
     # Outermost: headers must be on every response, including the 500s and
@@ -84,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(statements.router)
     app.include_router(notifications.router)
     app.include_router(audit.router)
+    app.include_router(users.router)
 
     return app
 

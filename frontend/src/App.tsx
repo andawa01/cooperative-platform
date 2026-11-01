@@ -33,6 +33,12 @@ const ProduceList = lazy(() => import('@/pages/Produce/List'))
 const NewProduceLine = lazy(() => import('@/pages/Produce/New'))
 const ProduceDetail = lazy(() => import('@/pages/Produce/Detail'))
 
+const FarmerStatement = lazy(() => import('@/pages/Farmers/Statement'))
+
+const AuditList = lazy(() => import('@/pages/Audit/List'))
+const UsersList = lazy(() => import('@/pages/Users/List'))
+const NewUser = lazy(() => import('@/pages/Users/New'))
+
 export default function App() {
   return (
     <AuthProvider>
@@ -85,6 +91,14 @@ export default function App() {
             element={
               <Suspense fallback={<Loading />}>
                 <FarmerDetail />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/farmers/:id/statement"
+            element={
+              <Suspense fallback={<Loading />}>
+                <FarmerStatement />
               </Suspense>
             }
           />
@@ -188,6 +202,36 @@ export default function App() {
               <RequireRole roles={['admin']}>
                 <Suspense fallback={<Loading />}>
                   <ProduceDetail />
+                </Suspense>
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <RequireRole roles={['admin']}>
+                <Suspense fallback={<Loading />}>
+                  <UsersList />
+                </Suspense>
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/users/new"
+            element={
+              <RequireRole roles={['admin']}>
+                <Suspense fallback={<Loading />}>
+                  <NewUser />
+                </Suspense>
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/audit"
+            element={
+              <RequireRole roles={['admin']}>
+                <Suspense fallback={<Loading />}>
+                  <AuditList />
                 </Suspense>
               </RequireRole>
             }

@@ -6,6 +6,7 @@ import { DataTable, type DataColumn } from '@/components/common/DataTable'
 import { PageHeader } from '@/components/common/PageHeader'
 import { FarmerStatusBadge } from '@/components/common/StatusBadge'
 import { Avatar } from '@/components/common/Avatar'
+import { ExportButton } from '@/components/common/ExportButton'
 import { useFarmers, type FarmerListParams } from '@/hooks/useFarmers'
 import type { Farmer } from '@/types/api'
 
@@ -140,6 +141,14 @@ export default function FarmersList() {
               <option value="suspended">Suspended</option>
               <option value="archived">Archived</option>
             </select>
+            <ExportButton
+              className="sm:ml-auto"
+              path="/farmers/export"
+              params={{
+                search: debouncedSearch || undefined,
+                status: status || undefined,
+              }}
+            />
           </>
         }
         pagination={{

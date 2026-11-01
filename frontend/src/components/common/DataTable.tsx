@@ -16,6 +16,8 @@
  * - Money and quantities are rendered by the caller (right-aligned numeric
  *   columns use `tabular-nums` so digits line up down the column).
  */
+import { Fragment, useState } from 'react'
+
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
@@ -94,6 +96,12 @@ export interface DataTableProps<T> {
   empty: { title: string; description?: string }
   toolbar?: React.ReactNode
   pagination?: DataTablePagination
+  /**
+   * When provided, every row gains a disclosure chevron that reveals this
+   * content inline. Used by the audit screen, where the before/after payload
+   * is too large for a cell but must stay one click away.
+   */
+  renderExpanded?: (row: T) => React.ReactNode
 }
 
 const SKELETON_ROWS = 6
@@ -110,8 +118,21 @@ export function DataTable<T>({
   empty,
   toolbar,
   pagination,
+  renderExpanded,
 }: DataTableProps<T>) {
   const navigate = useNavigate()
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+
+  const toggleExpanded = (key: string) => {
+    setExpandedRows((previous) => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const cellCount = columns.length + (renderExpanded ? 1 : 0)
 
   const page = pagination
     ? Math.floor(pagination.offset / pagination.limit) + 1
@@ -155,6 +176,9 @@ export function DataTable<T>({
                     {col.header}
                   </th>
                 ))}
+                {renderExpanded && (
+                  <th scope="col" className="w-10 print:hidden" />
+                )}
               </tr>
             </thead>
 
@@ -178,51 +202,88 @@ export function DataTable<T>({
                         />
                       </td>
                     ))}
+                    {renderExpanded && (
+                      <td className="border-b border-border/50 px-2" />
+                    )}
                   </tr>
                 ))
               ) : rows && rows.length > 0 ? (
                 rows.map((row) => {
+                  const key = rowKey(row)
                   const href = rowHref?.(row)
+                  const isExpanded = expandedRows.has(key)
                   return (
-                    <tr
-                      key={rowKey(row)}
-                      onClick={href ? () => navigate(href) : undefined}
-                      onKeyDown={
-                        href
-                          ? (event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault()
-                                navigate(href)
+                    <Fragment key={key}>
+                      <tr
+                        onClick={href ? () => navigate(href) : undefined}
+                        onKeyDown={
+                          href
+                            ? (event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  navigate(href)
+                                }
                               }
-                            }
-                          : undefined
-                      }
-                      tabIndex={href ? 0 : undefined}
-                      className={cn(
-                        'group border-b border-border/50 transition-colors last:border-0',
-                        href &&
-                          'cursor-pointer hover:bg-primary-soft/45 focus-visible:bg-primary-soft/60 focus-visible:outline-none',
+                            : undefined
+                        }
+                        tabIndex={href ? 0 : undefined}
+                        className={cn(
+                          'group border-b border-border/50 transition-colors',
+                          href &&
+                            'cursor-pointer hover:bg-primary-soft/45 focus-visible:bg-primary-soft/60 focus-visible:outline-none',
+                        )}
+                      >
+                        {columns.map((col) => (
+                          <td
+                            key={col.key}
+                            className={cn(
+                              'px-4 py-3.5 align-middle text-foreground',
+                              ALIGN_CELL[col.align ?? 'left'],
+                              col.hideBelow && HIDE_BELOW[col.hideBelow],
+                              col.className,
+                            )}
+                          >
+                            {col.render(row)}
+                          </td>
+                        ))}
+                        {renderExpanded && (
+                          <td className="px-2 py-3.5 print:hidden">
+                            <button
+                              onClick={(event) => {
+                                // The row itself may navigate; expanding must
+                                // not also open the record.
+                                event.stopPropagation()
+                                toggleExpanded(key)
+                              }}
+                              aria-expanded={isExpanded}
+                              aria-label={
+                                isExpanded ? 'Hide details' : 'Show details'
+                              }
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+                            >
+                              <ChevronRight
+                                className={cn(
+                                  'h-4 w-4 transition-transform',
+                                  isExpanded && 'rotate-90',
+                                )}
+                              />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                      {renderExpanded && isExpanded && (
+                        <tr className="border-b border-border/50 bg-stone-50/60">
+                          <td colSpan={cellCount} className="px-4 py-3">
+                            {renderExpanded(row)}
+                          </td>
+                        </tr>
                       )}
-                    >
-                      {columns.map((col) => (
-                        <td
-                          key={col.key}
-                          className={cn(
-                            'px-4 py-3.5 align-middle text-foreground',
-                            ALIGN_CELL[col.align ?? 'left'],
-                            col.hideBelow && HIDE_BELOW[col.hideBelow],
-                            col.className,
-                          )}
-                        >
-                          {col.render(row)}
-                        </td>
-                      ))}
-                    </tr>
+                    </Fragment>
                   )
                 })
               ) : (
                 <tr>
-                  <td colSpan={columns.length} className="p-0">
+                  <td colSpan={cellCount} className="p-0">
                     <EmptyState
                       bordered={false}
                       title={empty.title}

@@ -15,6 +15,7 @@ import type { DashboardSummary } from '../types/api'
 import { clearToken, getToken } from './auth'
 import type {
   AllocationInput,
+  AuditEntry,
   Balance,
   Delivery,
   DeliveryCreateRequest,
@@ -37,6 +38,8 @@ import type {
   Statement,
   TokenResponse,
   User,
+  UserCreateRequest,
+  UserUpdateRequest,
 } from '@/types/api'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -126,6 +129,31 @@ export const api = {
     logout: () => request<void>('/auth/logout', { method: 'POST' }),
     changePassword: (body: PasswordChangeRequest) =>
       request<void>('/auth/password', { method: 'POST', body }),
+    /** Admin-only once any user exists (open only for the first bootstrap). */
+    register: (body: UserCreateRequest) =>
+      request<User>('/auth/register', { method: 'POST', body }),
+  },
+
+  users: {
+    list: (params: {
+      search?: string
+      role?: string
+      limit?: number
+      offset?: number
+    } = {}) => request<Paginated<User>>('/users', { query: params }),
+    update: (id: string, body: UserUpdateRequest) =>
+      request<User>(`/users/${id}`, { method: 'PATCH', body }),
+  },
+
+  audit: {
+    list: (params: {
+      action?: string
+      entity_type?: string
+      entity_id?: string
+      actor_id?: string
+      limit?: number
+      offset?: number
+    } = {}) => request<Paginated<AuditEntry>>('/audit', { query: params }),
   },
 
   farmers: {

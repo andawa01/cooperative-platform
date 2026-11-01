@@ -15,6 +15,7 @@ import { NotificationStatusBadge } from '@/components/common/StatusBadge'
 import { useAuth } from '@/hooks/useAuth'
 import { useNotification, useRetryNotification } from '@/hooks/useNotifications'
 import { useFarmer } from '@/hooks/useFarmers'
+import { formatDateTime } from '@/lib/datetime'
 
 export default function NotificationDetail() {
   const { id } = useParams<{ id: string }>()
@@ -53,7 +54,7 @@ export default function NotificationDetail() {
         back={{ to: '/notifications', label: 'Notifications' }}
         title={n.recipient}
         badge={<NotificationStatusBadge status={n.status} />}
-        description={new Date(n.created_at).toLocaleString()}
+        description={formatDateTime(n.created_at)}
         action={
           isAdmin &&
           (n.status === 'failed' ||
@@ -100,7 +101,7 @@ export default function NotificationDetail() {
             <DetailRow label="Attempts" value={String(n.attempts)} />
             <DetailRow
               label="Sent at"
-              value={n.sent_at ? new Date(n.sent_at).toLocaleString() : '—'}
+              value={formatDateTime(n.sent_at)}
             />
             {n.last_error && (
               <DetailRow label="Last error" value={n.last_error} />

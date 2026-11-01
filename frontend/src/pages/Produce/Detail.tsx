@@ -20,6 +20,7 @@ import {
   useRates,
 } from '@/hooks/useProduceLines'
 import { formatMoney } from '@/lib/auth'
+import { formatDate, toIsoDate } from '@/lib/datetime'
 
 export default function ProduceDetail() {
   const { id } = useParams<{ id: string }>()
@@ -31,9 +32,7 @@ export default function ProduceDetail() {
 
   const [showRateForm, setShowRateForm] = useState(false)
   const [newRate, setNewRate] = useState('')
-  const [effectiveFrom, setEffectiveFrom] = useState(
-    new Date().toISOString().slice(0, 10),
-  )
+  const [effectiveFrom, setEffectiveFrom] = useState(toIsoDate())
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
@@ -147,7 +146,7 @@ export default function ProduceDetail() {
             </div>
             <div className="mt-2 text-xs text-muted-foreground">
               {currentRate
-                ? `Effective since ${currentRate.effective_from}`
+                ? `Effective since ${formatDate(currentRate.effective_from)}`
                 : 'No rate set — deliveries will be recorded unvalued.'}
             </div>
           </CardBody>
@@ -283,9 +282,9 @@ export default function ProduceDetail() {
                     {formatMoney(r.rate_per_unit, r.currency)} per {l.unit}
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
-                    from {r.effective_from}
+                    from {formatDate(r.effective_from)}
                     {r.effective_to
-                      ? ` to ${r.effective_to}`
+                      ? ` to ${formatDate(r.effective_to)}`
                       : ' · current'}
                   </div>
                 </div>

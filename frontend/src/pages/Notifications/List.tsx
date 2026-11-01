@@ -4,6 +4,7 @@ import { DataTable, type DataColumn } from '@/components/common/DataTable'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NotificationStatusBadge } from '@/components/common/StatusBadge'
 import { useNotifications } from '@/hooks/useNotifications'
+import { formatDate } from '@/lib/datetime'
 import type { Notification } from '@/types/api'
 
 const DEFAULT_PAGE_SIZE = 10
@@ -21,7 +22,7 @@ const columns: DataColumn<Notification>[] = [
     hideBelow: 'sm',
     render: (n) => (
       <span className="text-stone-600 tabular-nums">
-        {new Date(n.created_at).toLocaleDateString()}
+        {formatDate(n.created_at)}
       </span>
     ),
   },
