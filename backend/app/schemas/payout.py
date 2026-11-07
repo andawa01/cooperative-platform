@@ -32,8 +32,11 @@ class PayoutItemResponse(BaseModel):
     id: uuid.UUID
     farmer_id: uuid.UUID
     farmer_name: str
-    # Carried because a mobile-money file needs the destination, not a name.
+    # Carried because a rail file needs the destination, not a name: the phone
+    # pays by M-Pesa, the bank pair pays by transfer (D-036).
     phone: str | None
+    bank_name: str | None
+    bank_account_number: str | None
     amount: Decimal
     currency: str
     status: PayoutItemStatus

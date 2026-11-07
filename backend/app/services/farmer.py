@@ -10,8 +10,11 @@ Conventions:
 - The service normalizes `phone` (E.164) per DECISIONS.md D-016.
 """
 
+import csv
+import io
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import UTC
 
 from sqlalchemy import func, or_, select
@@ -42,6 +45,14 @@ class FarmerNationalIdTaken(Exception):
 
 class InvalidPhoneFormat(Exception):
     """Raised when a phone cannot be normalized to E.164."""
+
+
+class IncompleteBankDetails(Exception):
+    """Bank name and account number must be set together (D-036)."""
+
+
+class InvalidBankImport(Exception):
+    """The uploaded file cannot be read as a bank-details CSV (D-037)."""
 
 
 class FarmerNotMergeable(Exception):
@@ -129,6 +140,10 @@ def create_farmer(
         phone=normalized_phone,
         date_of_birth=data.date_of_birth,
         national_id=(data.national_id.strip() if data.national_id else None),
+        bank_name=(data.bank_name.strip() if data.bank_name else None),
+        bank_account_number=(
+            data.bank_account_number.strip() if data.bank_account_number else None
+        ),
         location=(data.location.strip() if data.location else None),
         notes=data.notes,
         status=FarmerStatus.PENDING_VERIFICATION.value,
@@ -149,6 +164,8 @@ def create_farmer(
                 "last_name": farmer.last_name,
                 "phone": farmer.phone,
                 "national_id": farmer.national_id,
+                "bank_name": farmer.bank_name,
+                "bank_account_number": farmer.bank_account_number,
                 "status": farmer.status,
             },
         )
@@ -264,6 +281,13 @@ def update_farmer(
         after[key] = audit.snapshot(value)
         setattr(farmer, key, value)
 
+    # A PATCH can clear or set one half of the pair on its own (e.g. a client
+    # that only knows about account numbers). The stored row must never end up
+    # with half a destination, so check the resulting row, not the payload.
+    if (farmer.bank_name is None) != (farmer.bank_account_number is None):
+        db.rollback()
+        raise IncompleteBankDetails()
+
     if before:
         audit.record(
             db,
@@ -370,3 +394,222 @@ def archive_farmer(
         db.refresh(farmer)
 
     return farmer
+
+
+# ---------------------------------------------------------------------------
+# Bulk bank details (D-037)
+# ---------------------------------------------------------------------------
+
+MAX_IMPORT_ROWS = 500
+
+IMPORT_COLUMNS = ("phone", "bank_name", "bank_account_number")
+
+_BANK_ACCOUNT_RE = re.compile(r"^[0-9]{6,20}$")
+
+
+@dataclass
+class BankImportRow:
+    line: int
+    phone: str
+    farmer_name: str | None
+    status: str
+    message: str | None
+
+
+@dataclass
+class BankImportResult:
+    dry_run: bool
+    total: int
+    valid: int
+    applied: int
+    errors: int
+    rows: list[BankImportRow]
+
+
+def _read_bank_csv(text: str) -> list[tuple[int, dict[str, str]]]:
+    """
+    Parse and range-check the file.
+
+    A bad file is an error, not "0 members matched": a header typo reported as
+    an empty import is how someone silently re-uploads the same wrong file
+    three times. The BOM is stripped because Excel writes one, and the first
+    column header would otherwise arrive as `\ufeffphone`.
+    """
+    text = text.lstrip("\ufeff")
+    reader = csv.reader(io.StringIO(text, newline=""))
+
+    try:
+        raw_header = next(reader)
+    except StopIteration:
+        raise InvalidBankImport(
+            "The file is empty. It needs a header row: "
+            "phone, bank_name, bank_account_number."
+        ) from None
+
+    header = [cell.strip().lower().replace(" ", "_") for cell in raw_header]
+    missing = [column for column in IMPORT_COLUMNS if column not in header]
+    if missing:
+        raise InvalidBankImport(
+            "The header row is missing "
+            + ", ".join(missing)
+            + ". Expected: phone, bank_name, bank_account_number."
+        )
+
+    index = {column: header.index(column) for column in IMPORT_COLUMNS}
+
+    rows: list[tuple[int, dict[str, str]]] = []
+    for line, cells in enumerate(reader, start=2):
+        if not any(cell.strip() for cell in cells):
+            continue
+        rows.append(
+            (
+                line,
+                {
+                    column: (cells[i].strip() if i < len(cells) else "")
+                    for column, i in index.items()
+                },
+            )
+        )
+
+    if not rows:
+        raise InvalidBankImport("The file has a header but no members in it.")
+    if len(rows) > MAX_IMPORT_ROWS:
+        raise InvalidBankImport(
+            f"The file has {len(rows)} rows; the limit is {MAX_IMPORT_ROWS} per "
+            "import. Split it into smaller files."
+        )
+    return rows
+
+
+def import_bank_details(
+    db: Session,
+    csv_text: str,
+    actor: User,
+    *,
+    dry_run: bool = True,
+) -> BankImportResult:
+    """
+    Add or correct bank details for many members in one file.
+
+    Preview by default: every row is checked and reported, but nothing is
+    written. Applying writes only the valid rows and records the same
+    `farmer.update` audit entry a manual edit would, so the trail does not
+    depend on how the change arrived.
+
+    Matching is by phone, because the phone is the member's unique handle and
+    the field a treasurer's spreadsheet already has. Every failure names the
+    line it came from: "nothing happened" is only useful if the admin knows
+    which of 200 rows to fix. Rows are never created — an unknown phone is a
+    typo or a member who was never registered, and guessing is not an option
+    for a payout destination.
+    """
+    parsed = _read_bank_csv(csv_text)
+
+    # Normalise every phone first, so the member lookup is one query rather
+    # than one per row (D-027).
+    candidates: list[tuple[int, dict[str, str], str | None, str | None]] = []
+    phones: set[str] = set()
+    for line, record in parsed:
+        phone: str | None = None
+        error: str | None = None
+        raw_phone = record["phone"]
+        if not raw_phone:
+            error = "Phone is required to find the member."
+        else:
+            try:
+                phone = normalize_phone(raw_phone)
+                phones.add(phone)
+            except InvalidPhoneFormat as exc:
+                error = str(exc)
+        candidates.append((line, record, phone, error))
+
+    farmers = (
+        {
+            farmer.phone: farmer
+            for farmer in db.scalars(select(Farmer).where(Farmer.phone.in_(phones)))
+        }
+        if phones
+        else {}
+    )
+
+    rows: list[BankImportRow] = []
+    valid: list[tuple[BankImportRow, Farmer, str, str]] = []
+    seen: dict[str, int] = {}
+
+    for line, record, phone, error in candidates:
+        if error is not None or phone is None:
+            rows.append(
+                BankImportRow(line, phone or record["phone"], None, "error", error)
+            )
+            continue
+
+        if phone in seen:
+            rows.append(
+                BankImportRow(
+                    line,
+                    phone,
+                    None,
+                    "error",
+                    f"This phone already appears on line {seen[phone]}.",
+                )
+            )
+            continue
+        seen[phone] = line
+
+        farmer = farmers.get(phone)
+        if farmer is None:
+            rows.append(
+                BankImportRow(
+                    line, phone, None, "error", "No member has this phone number."
+                )
+            )
+            continue
+
+        bank_name = record["bank_name"]
+        account = record["bank_account_number"].replace(" ", "")
+        if not bank_name:
+            error = "Bank name is required alongside the account number."
+        elif not _BANK_ACCOUNT_RE.match(account):
+            error = "Account number must be 6–20 digits."
+
+        if error is not None:
+            rows.append(BankImportRow(line, phone, farmer.full_name, "error", error))
+            continue
+
+        row = BankImportRow(line, phone, farmer.full_name, "valid", None)
+        rows.append(row)
+        valid.append((row, farmer, bank_name[:100], account))
+
+    applied = 0
+    if not dry_run:
+        for row, farmer, bank_name, account in valid:
+            if farmer.bank_name == bank_name and farmer.bank_account_number == account:
+                row.status = "applied"
+                applied += 1
+                continue
+            audit.record(
+                db,
+                actor_id=actor.id,
+                action="farmer.update",
+                entity_type="farmer",
+                entity_id=farmer.id,
+                before={
+                    "bank_name": farmer.bank_name,
+                    "bank_account_number": farmer.bank_account_number,
+                },
+                after={"bank_name": bank_name, "bank_account_number": account},
+            )
+            farmer.bank_name = bank_name
+            farmer.bank_account_number = account
+            row.status = "applied"
+            applied += 1
+        db.commit()
+
+    return BankImportResult(
+        dry_run=dry_run,
+        total=len(rows),
+        valid=sum(1 for row in rows if row.status in {"valid", "applied"}),
+        applied=applied,
+        errors=sum(1 for row in rows if row.status == "error"),
+        rows=rows,
+    )

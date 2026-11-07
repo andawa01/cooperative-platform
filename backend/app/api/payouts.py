@@ -31,6 +31,7 @@ from app.schemas.payout import (
     PayoutListResponse,
 )
 from app.services import payout as payout_service
+from app.services import rails as rail_service
 from app.services.payout import (
     FarmerNotFound,
     InvalidBatchState,
@@ -79,7 +80,7 @@ def _serialize_batch(batch: PayoutBatch, totals: tuple[Decimal, int, int, int]):
 
 
 def _serialize_items(db: Session, items: list[PayoutItem]) -> list[PayoutItemResponse]:
-    """Farmer names and phones resolved in one query for the whole run."""
+    """Farmer names and payout destinations, resolved in one query per run."""
     if not items:
         return []
 
@@ -97,6 +98,8 @@ def _serialize_items(db: Session, items: list[PayoutItem]) -> list[PayoutItemRes
                 farmer_id=item.farmer_id,
                 farmer_name=farmer.full_name if farmer else "Unknown farmer",
                 phone=farmer.phone if farmer else None,
+                bank_name=farmer.bank_name if farmer else None,
+                bank_account_number=(farmer.bank_account_number if farmer else None),
                 amount=item.amount,
                 currency=item.currency,
                 status=item.status,
@@ -246,6 +249,59 @@ def cancel_payout_run(
     return PayoutBatchDetail(
         **_serialize_batch(batch, totals).model_dump(),
         items=_serialize_items(db, items),
+    )
+
+
+@router.get("/{batch_id}/rail-file", response_class=Response)
+def download_rail_file(
+    batch_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    The file this run's rail expects — M-Pesa B2C bulk upload today.
+
+    Only members without a payment are in the file: a row that already has a
+    payment would pay that member twice. No BOM, unlike the Excel-facing
+    exports, because a payment portal reads this file.
+
+    409 with a readable reason when the method has no file (cash), when the
+    rail needs data the member record does not have (bank accounts), or when
+    everyone in the run is already paid.
+    """
+    try:
+        batch = payout_service.get_batch(db, batch_id)
+    except PayoutNotFound as exc:
+        raise _translate(exc)
+
+    items = payout_service.list_items(db, batch.id)
+    rows = [
+        rail_service.RailRow(
+            farmer_id=item.farmer_id,
+            farmer_name=item.farmer_name,
+            phone=item.phone,
+            bank_name=item.bank_name,
+            bank_account_number=item.bank_account_number,
+            amount=item.amount,
+            currency=item.currency,
+            status=item.status.value,
+        )
+        for item in _serialize_items(db, items)
+    ]
+
+    try:
+        rail_file = rail_service.build_file(batch, rows)
+    except rail_service.RailError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+
+    return Response(
+        content=rail_file.content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (f'attachment; filename="{rail_file.filename}"'),
+            "Cache-Control": "no-store",
+            "X-Payout-Rows": str(rail_file.row_count),
+        },
     )
 
 

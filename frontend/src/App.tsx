@@ -17,6 +17,7 @@ const Account = lazy(() => import('@/pages/Account'))
 const FarmersList = lazy(() => import('@/pages/Farmers/List'))
 const NewFarmer = lazy(() => import('@/pages/Farmers/New'))
 const FarmerDetail = lazy(() => import('@/pages/Farmers/Detail'))
+const BankDetailsImport = lazy(() => import('@/pages/Farmers/BankImport'))
 
 const DeliveriesList = lazy(() => import('@/pages/Deliveries/List'))
 const NewDelivery = lazy(() => import('@/pages/Deliveries/New'))
@@ -92,6 +93,16 @@ export default function App() {
               <Suspense fallback={<Loading />}>
                 <NewFarmer />
               </Suspense>
+            }
+          />
+          <Route
+            path="/farmers/bank-details/import"
+            element={
+              <RequireRole roles={['admin']}>
+                <Suspense fallback={<Loading />}>
+                  <BankDetailsImport />
+                </Suspense>
+              </RequireRole>
             }
           />
           <Route

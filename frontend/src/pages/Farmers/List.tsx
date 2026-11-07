@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Upload } from 'lucide-react'
 
 import { ButtonLink } from '@/components/common/Button'
 import { DataTable, type DataColumn } from '@/components/common/DataTable'
@@ -8,6 +8,7 @@ import { FarmerStatusBadge } from '@/components/common/StatusBadge'
 import { Avatar } from '@/components/common/Avatar'
 import { ExportButton } from '@/components/common/ExportButton'
 import { useFarmers, type FarmerListParams } from '@/hooks/useFarmers'
+import { useAuth } from '@/hooks/useAuth'
 import type { Farmer } from '@/types/api'
 
 const DEFAULT_PAGE_SIZE = 10
@@ -54,6 +55,7 @@ const columns: DataColumn<Farmer>[] = [
 ]
 
 export default function FarmersList() {
+  const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [offset, setOffset] = useState(0)
@@ -88,13 +90,23 @@ export default function FarmersList() {
             : 'Loading farmers…'
         }
         action={
-          <ButtonLink
-            to="/farmers/new"
-            variant="primary"
-            icon={<Plus className="h-4 w-4" />}
-          >
-            Register farmer
-          </ButtonLink>
+          <>
+            {isAdmin && (
+              <ButtonLink
+                to="/farmers/bank-details/import"
+                icon={<Upload className="h-4 w-4" />}
+              >
+                Import bank details
+              </ButtonLink>
+            )}
+            <ButtonLink
+              to="/farmers/new"
+              variant="primary"
+              icon={<Plus className="h-4 w-4" />}
+            >
+              Register farmer
+            </ButtonLink>
+          </>
         }
       />
 

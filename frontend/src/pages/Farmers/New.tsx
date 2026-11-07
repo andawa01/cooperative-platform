@@ -25,6 +25,8 @@ export default function NewFarmer() {
     last_name: '',
     phone: '',
     national_id: '',
+    bank_name: '',
+    bank_account_number: '',
     location: '',
     date_of_birth: '',
     notes: '',
@@ -37,12 +39,20 @@ export default function NewFarmer() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    const hasBank = form.bank_name.trim().length > 0
+    const hasAccount = form.bank_account_number.trim().length > 0
+    if (hasBank !== hasAccount) {
+      setError('Bank name and account number go together — fill both or neither.')
+      return
+    }
     try {
       const farmer = await create.mutateAsync({
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
         phone: form.phone.trim(),
         national_id: form.national_id.trim() || null,
+        bank_name: form.bank_name.trim() || null,
+        bank_account_number: form.bank_account_number.trim() || null,
         location: form.location.trim() || null,
         date_of_birth: form.date_of_birth || null,
         notes: form.notes.trim() || null,
@@ -140,6 +150,37 @@ export default function NewFarmer() {
                 </Field>
               </div>
             </FieldGroup>
+
+            <div className="border-t border-border/60 pt-6">
+              <FieldGroup
+                title="Payout destination"
+                description="Bank details are only needed if this member can be paid by bank transfer. Mobile money uses the phone number above."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Bank name" htmlFor="bank_name" hint="Optional">
+                    <TextInput
+                      id="bank_name"
+                      placeholder="KCB"
+                      value={form.bank_name}
+                      onChange={(e) => set('bank_name', e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    label="Account number"
+                    htmlFor="bank_account_number"
+                    hint="Digits only, 6–20"
+                  >
+                    <TextInput
+                      id="bank_account_number"
+                      inputMode="numeric"
+                      placeholder="0123456789"
+                      value={form.bank_account_number}
+                      onChange={(e) => set('bank_account_number', e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </FieldGroup>
+            </div>
 
             <div className="border-t border-border/60 pt-6">
               <FieldGroup

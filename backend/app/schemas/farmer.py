@@ -14,13 +14,18 @@ Design notes:
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.farmer import FarmerStatus
 
 # E.164: + then 1-9 then 6-14 digits. Same regex as the DB CHECK.
 E164_PATTERN = r"^\+[1-9][0-9]{6,14}$"
+
+# Digits only, same as the DB CHECK. Leading zeros are meaningful, so the
+# account is a string everywhere — never an int.
+BANK_ACCOUNT_PATTERN = r"^[0-9]{6,20}$"
 
 
 class FarmerCreate(BaseModel):
@@ -31,8 +36,21 @@ class FarmerCreate(BaseModel):
     phone: str = Field(min_length=7, max_length=20)
     date_of_birth: date | None = None
     national_id: str | None = Field(default=None, max_length=50)
+    # Bank details are optional, but only as a pair. Validated here for a
+    # create, where both fields are present in the same payload; for a PATCH
+    # the service compares against what is already stored.
+    bank_name: str | None = Field(default=None, max_length=100)
+    bank_account_number: str | None = Field(default=None, pattern=BANK_ACCOUNT_PATTERN)
     location: str | None = Field(default=None, max_length=255)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _bank_details_together(self) -> "FarmerCreate":
+        if (self.bank_name is None) != (self.bank_account_number is None):
+            raise ValueError(
+                "bank_name and bank_account_number must be provided together"
+            )
+        return self
 
 
 class FarmerUpdate(BaseModel):
@@ -51,6 +69,8 @@ class FarmerUpdate(BaseModel):
     last_name: str | None = Field(default=None, min_length=1, max_length=100)
     date_of_birth: date | None = None
     national_id: str | None = Field(default=None, max_length=50)
+    bank_name: str | None = Field(default=None, max_length=100)
+    bank_account_number: str | None = Field(default=None, pattern=BANK_ACCOUNT_PATTERN)
     location: str | None = Field(default=None, max_length=255)
     notes: str | None = None
 
@@ -62,6 +82,8 @@ class FarmerResponse(BaseModel):
     phone: str
     date_of_birth: date | None
     national_id: str | None
+    bank_name: str | None
+    bank_account_number: str | None
     location: str | None
     notes: str | None
     status: FarmerStatus
@@ -79,3 +101,36 @@ class FarmerListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class BankDetailsImportRequest(BaseModel):
+    """
+    The CSV file's text, not an upload: the browser reads the file and sends
+    what it found, so there is one parser (the server's) and no multipart
+    dependency. `dry_run` defaults to true — importing money destinations is
+    something an admin confirms after seeing who it matched.
+    """
+
+    csv: str = Field(min_length=1, max_length=1_000_000)
+    dry_run: bool = True
+
+
+class BankDetailsImportRow(BaseModel):
+    line: int
+    phone: str
+    farmer_name: str | None
+    status: Literal["valid", "applied", "error"]
+    message: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class BankDetailsImportResult(BaseModel):
+    dry_run: bool
+    total: int
+    valid: int
+    applied: int
+    errors: int
+    rows: list[BankDetailsImportRow]
+
+    model_config = {"from_attributes": True}

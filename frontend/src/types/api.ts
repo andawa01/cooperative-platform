@@ -71,6 +71,9 @@ export interface Farmer {
   phone: string
   date_of_birth: string | null
   national_id: string | null
+  /** Bank destination for bank transfer runs; set together or not at all. */
+  bank_name: string | null
+  bank_account_number: string | null
   location: string | null
   notes: string | null
   status: FarmerStatus
@@ -87,8 +90,34 @@ export interface FarmerCreateRequest {
   phone: string
   date_of_birth?: string | null
   national_id?: string | null
+  bank_name?: string | null
+  bank_account_number?: string | null
   location?: string | null
   notes?: string | null
+}
+
+export interface BankDetailsImportRequest {
+  /** The file's text; the server parses and validates it. */
+  csv: string
+  /** Preview by default — an apply must be asked for explicitly. */
+  dry_run?: boolean
+}
+
+export interface BankDetailsImportRow {
+  line: number
+  phone: string
+  farmer_name: string | null
+  status: 'valid' | 'applied' | 'error'
+  message: string | null
+}
+
+export interface BankDetailsImportResult {
+  dry_run: boolean
+  total: number
+  valid: number
+  applied: number
+  errors: number
+  rows: BankDetailsImportRow[]
 }
 
 export interface FarmerUpdateRequest {
@@ -96,6 +125,8 @@ export interface FarmerUpdateRequest {
   last_name?: string
   date_of_birth?: string | null
   national_id?: string | null
+  bank_name?: string | null
+  bank_account_number?: string | null
   location?: string | null
   notes?: string | null
 }
@@ -310,6 +341,8 @@ export interface PayoutItem {
   farmer_id: string
   farmer_name: string
   phone: string | null
+  bank_name: string | null
+  bank_account_number: string | null
   amount: string
   currency: string
   status: PayoutItemStatus

@@ -273,6 +273,9 @@ def test_farmers_export_matches_the_list_and_has_a_filename(
         "last_name",
         "phone",
         "national_id",
+        # The bank rail's destination (D-036); the export is the record.
+        "bank_name",
+        "bank_account_number",
         "date_of_birth",
         "location",
         "status",

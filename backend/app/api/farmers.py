@@ -22,6 +22,8 @@ from app.db.session import get_db
 from app.models.farmer import FarmerStatus
 from app.models.user import User, UserRole
 from app.schemas.farmer import (
+    BankDetailsImportRequest,
+    BankDetailsImportResult,
     FarmerCreate,
     FarmerListResponse,
     FarmerResponse,
@@ -32,6 +34,8 @@ from app.services.farmer import (
     FarmerNationalIdTaken,
     FarmerNotFound,
     FarmerPhoneTaken,
+    IncompleteBankDetails,
+    InvalidBankImport,
     InvalidPhoneFormat,
 )
 
@@ -54,6 +58,13 @@ def _translate(exc: Exception) -> HTTPException:
         )
     if isinstance(exc, InvalidPhoneFormat):
         return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+    if isinstance(exc, IncompleteBankDetails):
+        return HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Bank name and account number must be provided together.",
+        )
+    if isinstance(exc, InvalidBankImport):
+        return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     return HTTPException(status.HTTP_400_BAD_REQUEST, "Bad request")
 
 
@@ -75,7 +86,12 @@ def create_farmer(
     """Register a farmer. Admin or clerk."""
     try:
         return farmer_service.create_farmer(db, payload, actor)
-    except (FarmerPhoneTaken, FarmerNationalIdTaken, InvalidPhoneFormat) as exc:
+    except (
+        FarmerPhoneTaken,
+        FarmerNationalIdTaken,
+        InvalidPhoneFormat,
+        IncompleteBankDetails,
+    ) as exc:
         raise _translate(exc)
 
 
@@ -137,6 +153,8 @@ def export_farmers(
             "last_name",
             "phone",
             "national_id",
+            "bank_name",
+            "bank_account_number",
             "date_of_birth",
             "location",
             "status",
@@ -150,6 +168,8 @@ def export_farmers(
                 farmer.last_name,
                 farmer.phone,
                 farmer.national_id,
+                farmer.bank_name,
+                farmer.bank_account_number,
                 farmer.date_of_birth,
                 farmer.location,
                 farmer.status,
@@ -159,6 +179,28 @@ def export_farmers(
             for farmer in items
         ],
     )
+
+
+@router.post("/bank-details/import", response_model=BankDetailsImportResult)
+def import_bank_details(
+    payload: BankDetailsImportRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_role(UserRole.ADMIN)),
+):
+    """
+    Add or correct bank details for many members from a CSV.
+
+    `dry_run` defaults to true and writes nothing: it reports every row that
+    matched, every row that did not, and why. Apply with `dry_run=false`;
+    only valid rows are written, in one transaction, leaving one audit entry
+    per member that actually changed (D-037).
+    """
+    try:
+        return farmer_service.import_bank_details(
+            db, payload.csv, actor, dry_run=payload.dry_run
+        )
+    except InvalidBankImport as exc:
+        raise _translate(exc)
 
 
 @router.get("/{farmer_id}", response_model=FarmerResponse)
@@ -185,7 +227,7 @@ def update_farmer(
         return farmer_service.update_farmer(db, farmer_id, payload, actor)
     except FarmerNotFound as exc:
         raise _translate(exc)
-    except FarmerNationalIdTaken as exc:
+    except (FarmerNationalIdTaken, IncompleteBankDetails) as exc:
         raise _translate(exc)
 
 

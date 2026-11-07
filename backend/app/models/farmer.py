@@ -14,10 +14,13 @@ Design invariants (enforced at DB level where possible):
 4. status = 'merged' <=> merged_into_id IS NOT NULL (both directions)
 5. verified_at and verified_by_id are set together or not at all
 6. Farmers are never hard-deleted — only status changes
+7. bank_name and bank_account_number are set together or not at all, and the
+   account number is digits only — half a destination is how a bank file
+   bounces (D-036)
 
 Application-level invariants (cannot be DB-enforced):
-7. Merged farmers cannot receive new deliveries or payments
-8. Merge chains (A→B→C) must be resolved when reading history
+8. Merged farmers cannot receive new deliveries or payments
+9. Merge chains (A→B→C) must be resolved when reading history
 """
 
 import enum
@@ -75,6 +78,14 @@ class Farmer(BaseModel):
     # Optional because not all farmers have formal ID. Unique WHEN PRESENT —
     # Postgres unique constraints ignore NULLs, which is exactly what we want.
     national_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # --- Payout destination (bank runs) --------------------------------
+    # Optional as a pair: a member may only ever be paid by M-Pesa. A bank
+    # file needs both the bank and the account, so the DB refuses half an
+    # address — money sent to a wrong or truncated account is the failure
+    # this constraint exists to prevent. Digits only, leading zeros kept.
+    bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bank_account_number: Mapped[str | None] = mapped_column(String(34), nullable=True)
 
     # --- Lifecycle ------------------------------------------------------
     status: Mapped[str] = mapped_column(
@@ -135,6 +146,17 @@ class Farmer(BaseModel):
         CheckConstraint(
             "(verified_at IS NULL) = (verified_by_id IS NULL)",
             name="ck_farmer_verification_consistency",
+        ),
+        # Bank details are a pair: both or neither.
+        CheckConstraint(
+            "(bank_name IS NULL) = (bank_account_number IS NULL)",
+            name="ck_farmer_bank_details_together",
+        ),
+        # Account numbers are digits (leading zeros are meaningful, so this
+        # stays a string); anything else is a typo waiting to misroute money.
+        CheckConstraint(
+            r"bank_account_number IS NULL OR bank_account_number ~ '^[0-9]{6,20}$'",
+            name="ck_farmer_bank_account_digits",
         ),
         # status must be one of the known values (mirrors FarmerStatus).
         CheckConstraint(

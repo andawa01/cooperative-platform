@@ -2532,3 +2532,149 @@ recomputed.
   column, so an ordered `alembic upgrade head` is sufficient.
 - A future "find by receipt" lookup (clerk types the quoted number) is a plain
   indexed equality filter on the new unique constraint.
+
+## D-035 — A rail is a file first, a gateway later
+
+The co-op's last mile is a treasurer uploading a bulk file to the M-Pesa
+portal. A gateway integration would be nice, but a payment file is what
+actually gets used on the fifth of the month, and it has no vendor account,
+no API keys and no sandbox to wait for. So the rail seam is built around the
+file, and the file is built from the same run the ledger already approved.
+
+**Decision — the file contains unpaid members only.**
+
+`GET /payout-runs/{id}/rail-file` filters out anyone with a payment. A
+payout file is an instruction to move money; including a row that is already
+paid turns a retry into a double payment, which is the most expensive bug in
+the feature and the hardest to claw back from a member's phone. If every row
+is paid, the endpoint refuses rather than returning a header-only file that
+someone might upload anyway.
+
+**Decision — no BOM on rail files.**
+
+The month-end exports deliberately prepend a BOM so Excel opens UTF-8 names
+correctly (see `api/csv.py`). A payment portal is not Excel: a BOM becomes
+part of the first column name and makes `CommandID` unreadable. Rail files are
+plain UTF-8 with CRLF, and the two paths stay deliberately different.
+
+**Decision — amounts are written at two decimals.**
+
+The ledger is `Numeric(12, 4)`; M-Pesa pays to the cent. The file rounds
+half-up to minor units, because a portal cannot credit `500.0000`. The
+recorded payment remains the authoritative amount — if the rounding ever
+matters, it matters by less than a cent and is visible in the ledger.
+
+**Decision — a bank run refuses instead of guessing.**
+
+A bank EFT schedule identifies beneficiaries by bank and account number.
+Members have a phone and a national id; neither can be credited. Rather than
+emit a file with a phone number in the account column — which is how a whole
+payroll bounces — `bank_transfer` returns 409 and says the member record has
+no account details yet. Adding them is a member master-data change with its
+own validation burden (a wrong digit sends money to a stranger) and does not
+belong inside the rail item.
+
+**Consequences:**
+- Adding a gateway means implementing the same `build_file`-shaped provider
+  (M-Pesa B2C API, bank API) and dispatching from the same approved run; the
+  lifecycle, approval and per-item retry do not change.
+- Cash has no file by design: the run is the list, and dispatch records the
+  payments.
+- Per-row rail results (a bounced row) are handled by the existing item
+  statuses and retry; recording a failure reported by the portal needs an
+  item-level endpoint, which is the natural next step after this file.
+
+## D-036 — The member record carries the bank destination
+
+D-035's bank rail could only refuse, because a bank EFT schedule identifies a
+beneficiary by bank and account number and members had neither. This adds both
+and removes the refusal.
+
+**Decision — bank details live on the member, as a nullable pair.**
+
+`farmers.bank_name` and `farmers.bank_account_number` are optional and are set
+together or not at all: a schema check on create, a check against the
+*resulting row* on PATCH (a client can clear one half of an existing pair), and
+a DB constraint as the last line. A half-filled destination is worse than none:
+the file looks complete, the bank rejects or misroutes the row, and the member
+is told they were paid.
+
+**Decision — account numbers are digits, 6–20 characters, stored as text.**
+
+Leading zeros are meaningful (`0123456789` ≠ `123456789`), so this is never an
+integer. Letters and separators are rejected at the schema and again at the DB,
+because a pasted `ACC-1234` is a typo with a bank's name on it. This will not
+fit every bank's exotic account format; the fix when it bites is a widening of
+the rule with a test, not a loosening to free text.
+
+**Decision — the bank file is bank-agnostic.**
+
+`beneficiary, bank, account number, amount, currency, narration` — the fields
+every Kenyan bulk template needs, without bank or branch codes. Codes are
+bank-specific and a wrong one routes the money to another customer; inventing
+a mapping before a bank is chosen would be guessing with other people's money.
+Mapping this schedule onto one bank's template is a per-bank adapter behind the
+same rail seam (D-035).
+
+**Decision — a member missing details blocks the file, and is named.**
+
+Skipping the row silently would pay everyone else and leave that member
+believing they were in the run. The 409 lists the members, and the member page
+lets an admin add the missing pair before downloading again.
+
+**Consequences:**
+- Clerks can view bank details (they can already see phone numbers and
+  statements); only admins change them, via the existing `farmer.update`
+  permission and audit action.
+- Dispatched runs snapshot amounts but not destinations: a file generated
+  after a member's account changes uses the new account. That is correct —
+  the run pays the member, not the old account — but it means a file should be
+  uploaded before account details are edited.
+- A gateway integration still needs either member-level account verification
+  or the bank's own beneficiary validation; this column set is not that.
+
+## D-037 — Bank details arrive in bulk, by preview then apply
+
+D-036 gave members a bank destination; entering it one member at a time for a
+cooperative that already has hundreds is not a workflow anyone completes. The
+import screen reads a CSV and writes through the same service a manual edit
+uses.
+
+**Decision — the browser sends the file's text, the server parses it.**
+
+`POST /farmers/bank-details/import` takes `{csv, dry_run}` rather than a
+multipart upload. That keeps one parser (Python's `csv`, which handles quoted
+names and CRLF), needs no upload dependency, and gives the frontend nothing to
+mis-parse. The size cap and the 500-row limit are enforced server-side, where
+they cannot be skipped.
+
+**Decision — `dry_run` defaults to true, and the apply is explicit.**
+
+Checking reports every row with its line number: matched, unknown phone, bad
+account, duplicate phone, missing bank name. Applying writes only the valid
+rows, in one transaction, and reports skipped rows in the same response. A
+silent partial import is the failure mode to avoid — the admin must be able to
+say how many members changed.
+
+**Decision — match by phone, never create members.**
+
+Phone is the member's unique, already-normalised handle (D-016), and it is the
+field a treasurer's spreadsheet has. Accepting local `07…` formats means the
+file does not have to be converted first. An unknown phone is reported rather
+than creating a member: an import that can create people is an import that can
+invent a payout destination from one typo.
+
+**Decision — importing leaves the same audit trail as editing.**
+
+Each changed member gets a `farmer.update` entry with before/after bank
+fields, recorded through the existing audit helper. The trail must not depend
+on which screen the change came through. Unchanged rows are counted as applied
+but write no audit entry, because nothing changed.
+
+**Consequences:**
+- A duplicate phone inside one file skips the later row and names the earlier
+  line; the first row wins deterministically instead of depending on order.
+- Truncating the bank name at 100 characters matches the column; an account
+  number is never truncated, it is rejected.
+- CSV formula injection is not a concern here: nothing from this file is ever
+  rendered as a spreadsheet by us, and the values are validated digits/names.
