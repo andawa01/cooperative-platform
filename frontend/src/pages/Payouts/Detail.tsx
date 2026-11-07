@@ -229,9 +229,17 @@ export default function PayoutRunDetail() {
         }
         action={
           <>
+            {batch.method === 'mobile_money' &&
+              outstanding > 0 &&
+              batch.status !== 'cancelled' && (
+                <ExportButton
+                  path={`/payout-runs/${batch.id}/rail-file`}
+                  label="M-Pesa file"
+                />
+              )}
             <ExportButton
               path={`/payout-runs/${batch.id}/export`}
-              label="Export file"
+              label="Export CSV"
             />
             {isAdmin && canApprove && (
               <Button
@@ -343,13 +351,33 @@ export default function PayoutRunDetail() {
         <Card>
           <CardHeader title="What happens next" />
           <CardBody className="space-y-3 text-sm text-stone-600">
+            {batch.method === 'cash' && (
+              <p>
+                Cash runs have no file. Pay against this list across the
+                counter, then dispatch to record it.
+              </p>
+            )}
+            {batch.method === 'bank_transfer' && (
+              <p>
+                Bank files need an account number on each member record, which
+                is not captured yet. Dispatch records the transfers
+                individually against this run.
+              </p>
+            )}
+            {batch.status === 'approved' && batch.method === 'mobile_money' && (
+              <p>
+                Download the M-Pesa file and upload it to the portal, then
+                dispatch. The file lists only members without a payment, so a
+                retry can never pay someone twice.
+              </p>
+            )}
             {batch.status === 'draft' && (
               <p>
                 An admin must approve this run before it can pay anyone. Approval
                 is recorded with who did it and when.
               </p>
             )}
-            {batch.status === 'approved' && (
+            {batch.status === 'approved' && batch.method !== 'mobile_money' && (
               <p>
                 Dispatch records a payment for every member and queues their SMS
                 advice, which states the amount sent and what was withheld.

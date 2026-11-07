@@ -2532,3 +2532,54 @@ recomputed.
   column, so an ordered `alembic upgrade head` is sufficient.
 - A future "find by receipt" lookup (clerk types the quoted number) is a plain
   indexed equality filter on the new unique constraint.
+
+## D-035 — A rail is a file first, a gateway later
+
+The co-op's last mile is a treasurer uploading a bulk file to the M-Pesa
+portal. A gateway integration would be nice, but a payment file is what
+actually gets used on the fifth of the month, and it has no vendor account,
+no API keys and no sandbox to wait for. So the rail seam is built around the
+file, and the file is built from the same run the ledger already approved.
+
+**Decision — the file contains unpaid members only.**
+
+`GET /payout-runs/{id}/rail-file` filters out anyone with a payment. A
+payout file is an instruction to move money; including a row that is already
+paid turns a retry into a double payment, which is the most expensive bug in
+the feature and the hardest to claw back from a member's phone. If every row
+is paid, the endpoint refuses rather than returning a header-only file that
+someone might upload anyway.
+
+**Decision — no BOM on rail files.**
+
+The month-end exports deliberately prepend a BOM so Excel opens UTF-8 names
+correctly (see `api/csv.py`). A payment portal is not Excel: a BOM becomes
+part of the first column name and makes `CommandID` unreadable. Rail files are
+plain UTF-8 with CRLF, and the two paths stay deliberately different.
+
+**Decision — amounts are written at two decimals.**
+
+The ledger is `Numeric(12, 4)`; M-Pesa pays to the cent. The file rounds
+half-up to minor units, because a portal cannot credit `500.0000`. The
+recorded payment remains the authoritative amount — if the rounding ever
+matters, it matters by less than a cent and is visible in the ledger.
+
+**Decision — a bank run refuses instead of guessing.**
+
+A bank EFT schedule identifies beneficiaries by bank and account number.
+Members have a phone and a national id; neither can be credited. Rather than
+emit a file with a phone number in the account column — which is how a whole
+payroll bounces — `bank_transfer` returns 409 and says the member record has
+no account details yet. Adding them is a member master-data change with its
+own validation burden (a wrong digit sends money to a stranger) and does not
+belong inside the rail item.
+
+**Consequences:**
+- Adding a gateway means implementing the same `build_file`-shaped provider
+  (M-Pesa B2C API, bank API) and dispatching from the same approved run; the
+  lifecycle, approval and per-item retry do not change.
+- Cash has no file by design: the run is the list, and dispatch records the
+  payments.
+- Per-row rail results (a bounced row) are handled by the existing item
+  statuses and retry; recording a failure reported by the portal needs an
+  item-level endpoint, which is the natural next step after this file.
