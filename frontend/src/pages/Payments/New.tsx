@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Banknote, Info, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { FarmerPicker } from '@/components/common/FarmerPicker'
 import { Button } from '@/components/common/Button'
@@ -71,12 +72,14 @@ export default function NewPayment() {
         // No `allocations` field: server allocates FIFO.
       })
       navigate(`/payments/${payment.id}`, { replace: true })
+      toast.success('Payment recorded', {
+        description: `${formatMoney(payment.amount, payment.currency)} for ${farmer.first_name} ${farmer.last_name}.`,
+      })
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else {
-        setError('Something went wrong.')
-      }
+      const message =
+        err instanceof ApiError ? err.message : 'Something went wrong.'
+      setError(message)
+      toast.error('Payment could not be recorded', { description: message })
     }
   }
 

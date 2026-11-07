@@ -49,6 +49,8 @@ class DeliveryResponse(BaseModel):
     # making the client join that would be an N+1 across the whole page.
     farmer_name: str
     produce_line_name: str
+    # Short handle the member quotes when disputing a record.
+    receipt_number: str | None
     quantity: Decimal
     delivered_at: datetime
     recorded_at: datetime

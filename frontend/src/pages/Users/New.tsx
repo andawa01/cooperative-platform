@@ -8,6 +8,7 @@
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/common/Button'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -49,8 +50,13 @@ export default function NewUser() {
         role,
       })
       navigate('/users')
+      toast.success('User created', {
+        description: `${fullName.trim()} can now sign in as ${role}.`,
+      })
     } catch (err) {
-      setError((err as Error).message)
+      const message = (err as Error).message
+      setError(message)
+      toast.error('User could not be created', { description: message })
     }
   }
 

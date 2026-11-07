@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Info, Loader2, MinusCircle } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { FarmerPicker } from '@/components/common/FarmerPicker'
 import { Button } from '@/components/common/Button'
@@ -82,8 +83,14 @@ export default function NewDeduction() {
         notes: notes.trim() || null,
       })
       navigate(`/deductions/${deduction.id}`, { replace: true })
+      toast.success('Deduction recorded', {
+        description: `${formatMoney(n.toFixed(4), currency)} withheld from ${farmer.first_name} ${farmer.last_name} · ${DEDUCTION_REASON_LABELS[reason]}.`,
+      })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong.')
+      const message =
+        err instanceof ApiError ? err.message : 'Something went wrong.'
+      setError(message)
+      toast.error('Deduction could not be recorded', { description: message })
     }
   }
 

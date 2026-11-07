@@ -52,6 +52,10 @@ AUDIT_ACTIONS = (
     "user.update",
     "deduction.create",
     "deduction.reverse",
+    "payout.create",
+    "payout.approve",
+    "payout.dispatch",
+    "payout.cancel",
 )
 
 # Entity types an action can describe. Display-only as well.
@@ -59,6 +63,7 @@ AUDIT_ENTITY_TYPES = (
     "delivery",
     "payment",
     "deduction",
+    "payout",
     "rate",
     "farmer",
     "user",

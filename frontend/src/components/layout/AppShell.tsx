@@ -2,7 +2,8 @@
  * Application shell: sidebar navigation, sticky top bar, mobile tab bar.
  *
  * Navigation is role-aware:
- * - All users see: Dashboard, Farmers, Deliveries, Payments, Deductions.
+ * - All users see: Dashboard, Farmers, Deliveries, Payments, Deductions,
+ *   Payout runs.
  * - Admins additionally see: Notifications, Produce & Rates.
  *
  * The clerk-in-the-field usage is the priority, so the mobile layout is built
@@ -10,10 +11,12 @@
  * gesture-only affordances.
  */
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import {
   Banknote,
   Bell,
   ChevronsUpDown,
+  HandCoins,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -53,6 +56,9 @@ const NAV: NavGroup[] = [
       { to: '/deliveries', label: 'Deliveries', icon: Package, primary: true },
       { to: '/payments', label: 'Payments', icon: Banknote, primary: true },
       { to: '/deductions', label: 'Deductions', icon: Receipt, primary: true },
+      // Not in the mobile tab bar: six targets is one too many on a phone, and
+      // a run is an office action, not a field one.
+      { to: '/payouts', label: 'Payout runs', icon: HandCoins },
     ],
   },
   {
@@ -275,6 +281,14 @@ export function AppShell() {
           ))}
         </div>
       </nav>
+
+      {/* Action feedback (approve/dispatch/cancel etc.). Offset clears the
+          sticky header; the theme follows the app's own toggle. */}
+      <Toaster
+        theme={isDark ? 'dark' : 'light'}
+        position="top-center"
+        offset={{ top: 72 }}
+      />
     </div>
   )
 }

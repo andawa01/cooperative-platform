@@ -72,6 +72,12 @@ class Delivery(BaseModel):
     rate_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     currency_snapshot: Mapped[str] = mapped_column(String(3), nullable=False)
 
+    # --- Receipt number --------------------------------------------------
+    # Short, sequential handle the farmer can quote over the phone:
+    # `D-2026-000123`. Assigned when the delivery is recorded (D-034).
+    # Reversals carry none — they are corrections, not intake slips.
+    receipt_number: Mapped[str | None] = mapped_column(String(24), nullable=True)
+
     # --- Reversal linkage ----------------------------------------------
     # NULL for normal deliveries. Set (and quantity < 0) for reversals.
     reversal_of_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -119,6 +125,9 @@ class Delivery(BaseModel):
         # Multiple NULLs allowed (Postgres treats NULLs as distinct in
         # unique constraints), so normal deliveries are unaffected.
         UniqueConstraint("reversal_of_id", name="uq_delivery_reversal_of"),
+        # Two deliveries must never share a receipt number. The allocator
+        # locks the counter, and this is the backstop if that ever slips.
+        UniqueConstraint("receipt_number", name="uq_delivery_receipt_number"),
         # Query indexes for the common access patterns.
         Index("ix_delivery_farmer_delivered_at", "farmer_id", "delivered_at"),
         Index(

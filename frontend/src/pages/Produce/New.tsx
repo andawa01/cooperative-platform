@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Loader2, Sprout } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { ApiError } from '@/lib/api'
 import { useCreateProduceLine } from '@/hooks/useProduceLines'
@@ -36,17 +37,20 @@ export default function NewProduceLine() {
         description: form.description.trim() || null,
       })
       navigate(`/produce/${line.id}`, { replace: true })
+      toast.success('Produce line added', {
+        description: `${line.name} (${line.unit}) — set a rate before recording deliveries.`,
+      })
     } catch (err) {
+      let message = 'Something went wrong.'
       if (err instanceof ApiError) {
-        if (err.status === 409) setError('That produce code is already in use.')
+        if (err.status === 409) message = 'That produce code is already in use.'
         else if (err.status === 422)
-          setError(
-            'Please check the fields — code must be lowercase letters, digits, underscores.',
-          )
-        else setError(err.message)
-      } else {
-        setError('Something went wrong.')
+          message =
+            'Please check the fields — code must be lowercase letters, digits, underscores.'
+        else message = err.message
       }
+      setError(message)
+      toast.error('Produce line could not be added', { description: message })
     }
   }
 

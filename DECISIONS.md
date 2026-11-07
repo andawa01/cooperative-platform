@@ -2346,3 +2346,189 @@ is a separate decision with its own test, not a side effect of this one.
   members in arrears — the number exists and nobody is looking at it.
 - If a ninth reason code appears twice in one season, promote reason codes to a
   table instead of a CHECK.
+
+## D-032 — Payout runs: a schedule, not a second ledger
+
+Cooperative payday is not one payment at a time. Four hundred members are paid
+on one date, from one approval, with one file handed to the bank or the M-Pesa
+portal. Recording those as four hundred separate payments — each typed by a
+clerk — is where the real-world process diverges from what this system did.
+
+**Decision — a run is an instruction; the `Payment` is the fact.**
+
+`payout_batches` + `payout_items` hold the intent: who, how much, approved by
+whom, and what happened to each row. Dispatching an item calls the *existing*
+payment service, so allocation (FIFO), the audit trail, the SMS queue and
+reversal all keep working. The run itself contributes nothing to
+`available_credit` or `outstanding_debt` — only the payments do. Any other
+design double-counts the money, and the first symptom would be a balance that
+drops twice for one payday.
+
+**Decision — the amount is snapshotted at creation, and never recomputed.**
+
+A member's payable moves whenever a delivery, payment or deduction is recorded.
+Once someone has been told "you are getting KES 3,980 on Thursday", a deduction
+keyed on Wednesday must not quietly change it. The item carries its own
+`amount`; the batch total is derived from items (never stored, D-010), so the
+run is a photograph, not a live query. Re-running the batch is how you get a
+new picture.
+
+**Decision — dispatch commits per item.**
+
+A run of 400 must not lose 399 good payments because number 400 hit a validation
+error. Each item is paid in its own transaction; a failure is written onto that
+item with its message, and the response reports `paid` / `failed` / `pending`
+counts rather than a single success flag. Double payment on retry is prevented
+by deriving the payment's idempotency key from the **item id**
+(`payout-{batch16}-{item16}`) — re-dispatching replays the existing payment
+instead of creating a second one. That key is the safety net, not the item
+status: status is the record, idempotency is the guarantee.
+
+**Decision — admins release, clerks read.**
+
+Creating, approving, dispatching and cancelling are admin-only. A clerk can
+read runs and export the file, because the counter needs to answer "have I been
+paid yet?" without escalating. Approval is deliberately separate from creation
+so two admins can be involved, which is the cheapest useful form of maker-checker
+(1.5 is the fuller version).
+
+**Decision — no sequential run number, and no pretending a rail exists.**
+
+`reference` is `RUN-{year}-{6 hex of the id}`. A true sequence needs a counter
+row or a Postgres sequence, and buys ordering we already get from `created_at`;
+the cost would be a lock on every run creation. It is unique, quotable down a
+phone line, and printed on both the file and the derived payments.
+
+Dispatching means the payments are recorded and the run can be exported. There
+is no gateway, so an item is `paid` because a payment exists — not because a
+vendor said so. When a real rail lands, its per-row result becomes the
+authority and these statuses get their meaning narrowed (a reversal trigger).
+
+**Trade-off recorded honestly:** building a run reads each candidate's payable
+through `ledger.compute_balance`, i.e. a handful of queries per member. A
+bespoke aggregate query would be faster and would be the first place the run's
+definition of "owed" could drift from the ledger's. Reuse wins at this scale.
+Reversal trigger: if a co-op exceeds ~1,000 members, add a bulk ledger query to
+`ledger.py` itself so both paths share one implementation.
+
+**Verified:** `pytest app/tests` passes — 142 total, 16 new payout tests (snapshot,
+exclusion, frozen amounts after a later delivery, permissions, approve/dispatch
+order, double dispatch, cancel, deduction-netted amounts, export file, audit
+rows). `ruff check` and `ruff format --check` clean. Migration
+`e5c8a13d7f92` applies to head.
+
+## D-033 — The payment SMS shows its arithmetic
+
+"Payment of 3,980 received" is technically true and practically useless. The
+member's question is never *did money arrive* — it is *why is it 3,980 and not
+4,800*. Without the breakdown, answering that costs a visit to the office, and
+the cooperative's credibility depends on the member being able to check the
+sum on their own phone.
+
+**Decision — a second template, not a longer one.**
+
+`payment_advice` sits beside `payment_recorded` rather than replacing it. They
+say different things, they are retried and audited separately, and a template
+whose meaning silently changed under existing rows would make the notification
+history unreadable. `payment_recorded` stays for the plain confirmation case.
+
+The advice reads:
+
+```
+ShambaTrack: Grace, 3,980.00 KES sent via M-Pesa (RUN-2026-3F2A9C).
+Less deductions 820.00 (input credit 620.00, transport 200.00). Thank you.
+```
+
+**Decision — name two reasons, fold the rest into "other".**
+
+A member with eight charge types would otherwise receive a four-segment SMS.
+The two largest are named because they are the ones being questioned; the
+remainder is aggregated so the totals still add up. Reasons come from
+`SUM(deduction.amount)` grouped by `reason_code` — the same signed-row rule as
+the ledger, so a reversed charge disappears from the message instead of
+confusing the arithmetic.
+
+**Decision — no invented "gross" figure.**
+
+The tempting line is "produce 4,800, less 820". It is only true when the
+payment settles a full position with no prior credit, and a payment may be an
+advance, a partial settlement, or a run covering several deliveries. Stating a
+gross that happens to reconcile would be a plausible-looking lie, which is
+worse than saying less. What the message states is verifiable: the amount sent,
+the rail, the run reference, the withheld total, and its largest reasons. When
+nothing was withheld the message says so plainly rather than printing "0.00
+(other)".
+
+**Consequences:**
+- Both a payout run and a counter payment now send the advice; the difference
+  between them is the reference, not the wording.
+- The advice costs one extra grouped query per payment. It runs after the
+  payment is committed and is wrapped in a best-effort try, so a slow query or
+  an unreachable Redis can never fail a payment or a payout item.
+- SMS length: the common case is one segment (~140 characters with two named
+  reasons). A member with an unusually long name and long reference may spill
+  to two segments — acceptable, and cheaper than truncating the numbers.
+
+**Reversal triggers:**
+- If a member's statement becomes available by SMS/USSD, the advice can drop
+  the reasons and carry a link or short code instead.
+- If a real gateway is integrated, delivery receipts belong in the same
+  template's state rather than a third message.
+
+## D-034 — A delivery has a number a person can say out loud
+
+A UUID is unquotable. "I delivered on the 4th, about 80 kilos" is what the
+office actually hears, and it cannot be resolved without the clerk's guess.
+Every delivery now carries a receipt number — `D-2026-000123` — printed on the
+SMS and exported in the CSV, so a member can quote one thing and have exactly
+one record found.
+
+**Decision — sequential per calendar year, not per co-op lifetime.**
+
+The year is part of the number. It restarts at `000001` each January, which
+keeps the number short enough to read over a phone and makes the season obvious
+from the handle alone. The counter is `document_sequences(name, year)`, a table
+rather than a Postgres sequence, because a sequence cannot restart per year or
+roll back with the delivery it belongs to.
+
+**Decision — the number is gapless, and the counter is locked.**
+
+The counter row is taken with `SELECT ... FOR UPDATE` while the next value is
+allocated. Two clerks recording at the same moment therefore serialize for the
+few milliseconds it takes to increment an integer, and cannot be issued the
+same slip. The number is allocated inside the delivery's own transaction, so a
+failed insert rolls the counter back — the sequence has no holes and no number
+is spent on a delivery that does not exist.
+
+The cost is real and accepted: receipt allocation serializes concurrent
+delivery writes for the same year, and a delivery is otherwise not a financial
+operation that takes a lock. At cooperative volumes (hundreds per day) this is
+invisible; at thousands per minute it would need batching, which is a problem
+for a different system.
+
+Backstop: `uq_delivery_receipt_number` makes a duplicate impossible at the
+database level even if the allocator is ever changed carelessly.
+
+**Decision — reversals carry no number.**
+
+A reversal is a correction, not an intake slip. Giving it a number would let a
+member quote a slip for produce that was never delivered, and would make the
+numbering of the physical slips non-contiguous for no gain. The reversal is
+found through the original's number, which is what a dispute conversation
+starts from anyway.
+
+**Decision — existing rows are numbered on migration.**
+
+The backfill orders by `recorded_at, id` within each year of `delivered_at` and
+seeds each year's counter from the highest number issued. Re-deriving the same
+order reproduces the same numbers, so a downgrade loses nothing that cannot be
+recomputed.
+
+**Consequences:**
+- The receipt number is in the delivery response, delivery CSV export and the
+  `delivery_recorded` SMS. Existing notification templates are unchanged.
+- `record_delivery` now allocates a number before the insert, so it depends on
+  `document_sequences` existing; the migration adds the table before the
+  column, so an ordered `alembic upgrade head` is sufficient.
+- A future "find by receipt" lookup (clerk types the quoted number) is a plain
+  indexed equality filter on the new unique constraint.

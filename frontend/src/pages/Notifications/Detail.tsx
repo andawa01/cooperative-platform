@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowRight, MessageSquare, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/common/Button'
 import {
@@ -43,8 +44,13 @@ export default function NotificationDetail() {
     setActionError(null)
     try {
       await retry.mutateAsync()
+      toast.success('Advice requeued', {
+        description: `The message to ${n.recipient} will be sent again.`,
+      })
     } catch (err) {
-      setActionError((err as Error).message)
+      const message = (err as Error).message
+      setActionError(message)
+      toast.error('Could not retry the notification', { description: message })
     }
   }
 

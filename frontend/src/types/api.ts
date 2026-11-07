@@ -162,6 +162,8 @@ export interface Delivery {
   /** Resolved server-side so list screens do not need a second lookup. */
   farmer_name: string
   produce_line_name: string
+  /** `D-2026-000123` — the handle a member quotes. Reversals have none. */
+  receipt_number: string | null
   quantity: string
   delivered_at: string
   recorded_at: string
@@ -292,6 +294,68 @@ export interface DeductionReverseRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Payout runs
+// ---------------------------------------------------------------------------
+
+export type PayoutStatus = 'draft' | 'approved' | 'dispatched' | 'cancelled'
+export type PayoutItemStatus = 'pending' | 'paid' | 'failed' | 'cancelled'
+
+/**
+ * One member's line in a run. `amount` is what they were owed when the run was
+ * created — deliberately not recomputed, so a later correction cannot move an
+ * amount already promised.
+ */
+export interface PayoutItem {
+  id: string
+  farmer_id: string
+  farmer_name: string
+  phone: string | null
+  amount: string
+  currency: string
+  status: PayoutItemStatus
+  payment_id: string | null
+  error: string | null
+  dispatched_at: string | null
+}
+
+export interface PayoutBatch {
+  id: string
+  reference: string | null
+  currency: string
+  method: PaymentMethod
+  status: PayoutStatus
+  notes: string | null
+  created_by_id: string
+  approved_by_id: string | null
+  approved_at: string | null
+  dispatched_at: string | null
+  created_at: string
+  updated_at: string
+  total_amount: string
+  item_count: number
+  paid_count: number
+  failed_count: number
+}
+
+export interface PayoutBatchDetail extends PayoutBatch {
+  items: PayoutItem[]
+}
+
+export interface PayoutCreateRequest {
+  /** Omit to include every active member with a positive payable. */
+  farmer_ids?: string[] | null
+  method?: PaymentMethod
+  notes?: string | null
+}
+
+export interface PayoutDispatchResult {
+  batch: PayoutBatch
+  paid: number
+  failed: number
+  pending: number
+}
+
+// ---------------------------------------------------------------------------
 // Balance and statement
 // ---------------------------------------------------------------------------
 
@@ -364,7 +428,7 @@ export interface Notification {
   id: string
   farmer_id: string
   channel: 'sms'
-  template: 'delivery_recorded' | 'payment_recorded'
+  template: 'delivery_recorded' | 'payment_recorded' | 'payment_advice'
   recipient: string
   content: string
   related_entity_type: 'delivery' | 'payment' | null

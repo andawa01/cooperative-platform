@@ -113,6 +113,7 @@ def _serialize_many(
                 if d.produce_line_id in lines
                 else "Unknown produce line"
             ),
+            receipt_number=d.receipt_number,
             quantity=d.quantity,
             delivered_at=d.delivered_at,
             recorded_at=d.recorded_at,
@@ -233,6 +234,7 @@ def export_deliveries(
         filename=f"deliveries-{date.today().isoformat()}.csv",
         header=[
             "id",
+            "receipt_number",
             "delivered_at",
             "farmer",
             "produce_line",
@@ -248,6 +250,7 @@ def export_deliveries(
         rows=[
             (
                 d.id,
+                d.receipt_number,
                 d.delivered_at,
                 d.farmer_name,
                 d.produce_line_name,

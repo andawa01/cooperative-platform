@@ -30,6 +30,10 @@ const DeductionsList = lazy(() => import('@/pages/Deductions/List'))
 const NewDeduction = lazy(() => import('@/pages/Deductions/New'))
 const DeductionDetail = lazy(() => import('@/pages/Deductions/Detail'))
 
+const PayoutRunsList = lazy(() => import('@/pages/Payouts/List'))
+const NewPayoutRun = lazy(() => import('@/pages/Payouts/New'))
+const PayoutRunDetail = lazy(() => import('@/pages/Payouts/Detail'))
+
 const NotificationsList = lazy(() => import('@/pages/Notifications/List'))
 const NotificationDetail = lazy(() => import('@/pages/Notifications/Detail'))
 
@@ -181,6 +185,34 @@ export default function App() {
             element={
               <Suspense fallback={<Loading />}>
                 <DeductionDetail />
+              </Suspense>
+            }
+          />
+
+          {/* Payout runs — admins act, clerks can read */}
+          <Route
+            path="/payouts"
+            element={
+              <Suspense fallback={<Loading />}>
+                <PayoutRunsList />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/payouts/new"
+            element={
+              <RequireRole roles={['admin']}>
+                <Suspense fallback={<Loading />}>
+                  <NewPayoutRun />
+                </Suspense>
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/payouts/:id"
+            element={
+              <Suspense fallback={<Loading />}>
+                <PayoutRunDetail />
               </Suspense>
             }
           />

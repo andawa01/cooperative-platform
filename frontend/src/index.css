@@ -68,6 +68,14 @@
   --color-info-soft: var(--info-soft);
   --color-info-ink: var(--info-ink);
 
+  /* Categorical chart palette. Pages pick --color-chart-N; the values swap
+     in dark mode so bar and line colours stay legible on dark surfaces. */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
   --color-sidebar: var(--sidebar);
 }
 
@@ -111,6 +119,12 @@
   --info-soft: oklch(0.966 0.02 245);
   --info-ink: oklch(0.45 0.12 245);
 
+  --chart-1: oklch(0.55 0.13 150);
+  --chart-2: oklch(0.62 0.13 225);
+  --chart-3: oklch(0.55 0.2 285);
+  --chart-4: oklch(0.62 0.17 45);
+  --chart-5: oklch(0.55 0.2 15);
+
   --sidebar: oklch(1 0 0);
 }
 
@@ -147,6 +161,12 @@
   --info: oklch(0.704 0.118 245);
   --info-soft: oklch(0.303 0.047 245);
   --info-ink: oklch(0.867 0.077 245);
+
+  --chart-1: oklch(0.72 0.15 150);
+  --chart-2: oklch(0.75 0.12 225);
+  --chart-3: oklch(0.72 0.16 285);
+  --chart-4: oklch(0.75 0.15 55);
+  --chart-5: oklch(0.72 0.17 15);
 
   /* Mirror the neutral scale, step for step. Every `bg-stone-50` panel and
      `text-stone-600` label keeps its relative role without touching a single

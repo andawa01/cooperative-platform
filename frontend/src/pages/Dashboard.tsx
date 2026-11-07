@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -5,7 +6,6 @@ import {
   Banknote,
   MinusCircle,
   TrendingUp,
-  Users,
   Wallet,
 } from 'lucide-react'
 import {
@@ -27,8 +27,17 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { useDashboardSummary } from '@/hooks/useDashboard'
 import { formatMoney, parseMoney } from '@/lib/auth'
 import { formatDate, formatDayMonth, formatTime } from '@/lib/datetime'
+import { cn } from '@/lib/utils'
 
-const LINE_COLOURS = ['#15803d', '#0891b2', '#7c3aed', '#c2410c', '#be123c']
+const PERIOD_OPTIONS = [7, 30, 90]
+
+const LINE_COLOURS = [
+  'var(--color-chart-1)',
+  'var(--color-chart-2)',
+  'var(--color-chart-3)',
+  'var(--color-chart-4)',
+  'var(--color-chart-5)',
+]
 
 // Chart chrome is themed with CSS variables so the dashboard follows dark mode
 // without Recharts needing to know about React state.
@@ -43,7 +52,8 @@ const TOOLTIP_STYLE = {
 } as const
 
 export default function Dashboard() {
-  const { data, isLoading, error, refetch } = useDashboardSummary(30)
+  const [days, setDays] = useState(30)
+  const { data, isLoading, error, refetch } = useDashboardSummary(days)
 
   if (isLoading) return <Loading label="Loading dashboard…" />
   if (error)
@@ -88,11 +98,36 @@ export default function Dashboard() {
             {formatTime(data.generated_at)}
           </>
         }
+        action={
+          <div
+            role="group"
+            aria-label="Period"
+            className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-xs"
+          >
+            {PERIOD_OPTIONS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setDays(option)}
+                aria-pressed={days === option}
+                className={cn(
+                  'h-8 rounded-[7px] px-3 text-[13px] font-medium tabular-nums transition-colors',
+                  days === option
+                    ? 'bg-primary-soft text-primary-ink'
+                    : 'text-stone-500 hover:text-stone-800',
+                )}
+              >
+                {option}d
+              </button>
+            ))}
+          </div>
+        }
       />
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5 lg:gap-4">
+      {/* KPI cards — net payable leads as a wide hero, the rest fill evenly. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
         <StatCard
+          className="col-span-2"
           icon={<Wallet />}
           tone={parseMoney(data.net_payable_total) < 0 ? 'danger' : 'brand'}
           label="Net payable"
@@ -101,7 +136,7 @@ export default function Dashboard() {
         />
         <StatCard
           icon={<MinusCircle />}
-          tone="neutral"
+          tone="warning"
           label={`Withheld (${data.period_days}d)`}
           value={formatMoney(data.deductions_value_in_period, data.currency)}
           sub={`${data.deductions_in_period} deduction${data.deductions_in_period === 1 ? '' : 's'} · ${formatMoney(data.deductions_total, data.currency)} all time`}
@@ -122,17 +157,10 @@ export default function Dashboard() {
         />
         <StatCard
           icon={<TrendingUp />}
-          tone="brand"
+          tone="info"
           label={`Delivered (${data.period_days}d)`}
           value={formatMoney(data.deliveries_value_in_period, data.currency)}
           sub={`${data.deliveries_in_period} deliveries`}
-        />
-        <StatCard
-          icon={<Users />}
-          tone="info"
-          label="Active farmers"
-          value={String(status.active)}
-          sub={`of ${data.farmers_total} registered`}
         />
       </div>
 
@@ -316,7 +344,10 @@ export default function Dashboard() {
         </Card>
 
         <Card>
-          <CardHeader title="Farmers by status" />
+          <CardHeader
+            title="Farmers by status"
+            description={`${status.active} active of ${data.farmers_total} registered`}
+          />
           <CardBody className="pt-1">
             <ul className="space-y-3 text-sm">
               <StatusRow

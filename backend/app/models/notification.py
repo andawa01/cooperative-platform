@@ -36,6 +36,10 @@ class NotificationChannel(str, enum.Enum):
 class NotificationTemplate(str, enum.Enum):
     DELIVERY_RECORDED = "delivery_recorded"
     PAYMENT_RECORDED = "payment_recorded"
+    # Payment plus the arithmetic behind it — what was withheld and from what.
+    # Distinct from PAYMENT_RECORDED because the two say different things and
+    # a retry of one must not be confused with the other.
+    PAYMENT_ADVICE = "payment_advice"
 
 
 class RelatedEntityType(str, enum.Enum):
