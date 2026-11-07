@@ -32,6 +32,7 @@ from app.services.farmer import (
     FarmerNationalIdTaken,
     FarmerNotFound,
     FarmerPhoneTaken,
+    IncompleteBankDetails,
     InvalidPhoneFormat,
 )
 
@@ -54,6 +55,11 @@ def _translate(exc: Exception) -> HTTPException:
         )
     if isinstance(exc, InvalidPhoneFormat):
         return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+    if isinstance(exc, IncompleteBankDetails):
+        return HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Bank name and account number must be provided together.",
+        )
     return HTTPException(status.HTTP_400_BAD_REQUEST, "Bad request")
 
 
@@ -75,7 +81,12 @@ def create_farmer(
     """Register a farmer. Admin or clerk."""
     try:
         return farmer_service.create_farmer(db, payload, actor)
-    except (FarmerPhoneTaken, FarmerNationalIdTaken, InvalidPhoneFormat) as exc:
+    except (
+        FarmerPhoneTaken,
+        FarmerNationalIdTaken,
+        InvalidPhoneFormat,
+        IncompleteBankDetails,
+    ) as exc:
         raise _translate(exc)
 
 
@@ -137,6 +148,8 @@ def export_farmers(
             "last_name",
             "phone",
             "national_id",
+            "bank_name",
+            "bank_account_number",
             "date_of_birth",
             "location",
             "status",
@@ -150,6 +163,8 @@ def export_farmers(
                 farmer.last_name,
                 farmer.phone,
                 farmer.national_id,
+                farmer.bank_name,
+                farmer.bank_account_number,
                 farmer.date_of_birth,
                 farmer.location,
                 farmer.status,
@@ -185,7 +200,7 @@ def update_farmer(
         return farmer_service.update_farmer(db, farmer_id, payload, actor)
     except FarmerNotFound as exc:
         raise _translate(exc)
-    except FarmerNationalIdTaken as exc:
+    except (FarmerNationalIdTaken, IncompleteBankDetails) as exc:
         raise _translate(exc)
 
 

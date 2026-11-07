@@ -21,6 +21,7 @@ import {
   DetailRow,
 } from '@/components/common/Card'
 import { ErrorState, Loading } from '@/components/common/Loading'
+import { Field, TextInput } from '@/components/common/Form'
 import { PageHeader } from '@/components/common/PageHeader'
 import { FarmerStatusBadge } from '@/components/common/StatusBadge'
 import { Avatar } from '@/components/common/Avatar'
@@ -28,6 +29,7 @@ import {
   useArchiveFarmer,
   useFarmer,
   useFarmerBalance,
+  useUpdateFarmer,
   useVerifyFarmer,
 } from '@/hooks/useFarmers'
 import { useAuth } from '@/hooks/useAuth'
@@ -41,8 +43,13 @@ export default function FarmerDetail() {
   const balance = useFarmerBalance(id)
   const verify = useVerifyFarmer(id!)
   const archive = useArchiveFarmer(id!)
+  const updateFarmer = useUpdateFarmer(id!)
   const [actionError, setActionError] = useState<string | null>(null)
   const [archiveOpen, setArchiveOpen] = useState(false)
+  const [editingPayout, setEditingPayout] = useState(false)
+  const [bankName, setBankName] = useState('')
+  const [bankAccount, setBankAccount] = useState('')
+  const [bankError, setBankError] = useState<string | null>(null)
 
   if (farmer.isLoading) return <Loading />
   if (farmer.error)
@@ -59,6 +66,34 @@ export default function FarmerDetail() {
   const f = farmer.data
   const canVerify = f.status === 'pending_verification'
   const canArchive = f.status === 'active' || f.status === 'suspended'
+
+  const openPayoutEdit = () => {
+    setBankName(f.bank_name ?? '')
+    setBankAccount(f.bank_account_number ?? '')
+    setBankError(null)
+    setEditingPayout(true)
+  }
+
+  const savePayoutDetails = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const hasBank = bankName.trim().length > 0
+    const hasAccount = bankAccount.trim().length > 0
+    if (hasBank !== hasAccount) {
+      setBankError('Fill both the bank name and the account number, or clear both.')
+      return
+    }
+    setBankError(null)
+    try {
+      await updateFarmer.mutateAsync({
+        bank_name: bankName.trim() || null,
+        bank_account_number: bankAccount.trim() || null,
+      })
+      setEditingPayout(false)
+      toast.success('Payout details updated')
+    } catch (err) {
+      setBankError((err as Error).message)
+    }
+  }
 
   const doVerify = async () => {
     setActionError(null)
@@ -376,6 +411,103 @@ export default function FarmerDetail() {
           </CardBody>
         </Card>
       </div>
+
+      {/* Payout destination — the bank rail's address book (D-036) */}
+      <Card className="mt-4">
+        <CardHeader
+          title="Payout destination"
+          description="Where money can be sent. Mobile money uses the phone number; a bank run needs both a bank and an account number."
+        />
+        <CardBody className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-border/70 bg-stone-50/60 p-4">
+              <div className="text-[11px] font-semibold tracking-wider text-stone-500 uppercase">
+                Mobile money
+              </div>
+              <div className="mt-1 text-sm font-medium text-foreground tabular-nums">
+                {f.phone}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/70 bg-stone-50/60 p-4">
+              <div className="text-[11px] font-semibold tracking-wider text-stone-500 uppercase">
+                Bank transfer
+              </div>
+              {f.bank_name && f.bank_account_number ? (
+                <>
+                  <div className="mt-1 text-sm font-medium text-foreground">
+                    {f.bank_name}
+                  </div>
+                  <div className="text-xs text-muted-foreground tabular-nums">
+                    {f.bank_account_number}
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1 text-sm text-muted-foreground">
+                  No account on file — this member cannot be paid by bank
+                  transfer.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {isAdmin &&
+            (editingPayout ? (
+              <form
+                onSubmit={savePayoutDetails}
+                className="space-y-3 border-t border-border/60 pt-4"
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Bank name" htmlFor="bank_name">
+                    <TextInput
+                      id="bank_name"
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      placeholder="KCB"
+                    />
+                  </Field>
+                  <Field
+                    label="Account number"
+                    htmlFor="bank_account_number"
+                    hint="Digits only, 6–20"
+                  >
+                    <TextInput
+                      id="bank_account_number"
+                      inputMode="numeric"
+                      value={bankAccount}
+                      onChange={(e) => setBankAccount(e.target.value)}
+                    />
+                  </Field>
+                </div>
+                {bankError && (
+                  <p className="text-xs text-danger-ink">{bankError}</p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setEditingPayout(false)}
+                    disabled={updateFarmer.isPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="primary"
+                    disabled={updateFarmer.isPending}
+                  >
+                    {updateFarmer.isPending ? 'Saving…' : 'Save details'}
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <Button size="sm" onClick={openPayoutEdit}>
+                Edit payout details
+              </Button>
+            ))}
+        </CardBody>
+      </Card>
 
       <ConfirmDialog
         open={archiveOpen}

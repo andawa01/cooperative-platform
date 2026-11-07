@@ -8,7 +8,7 @@ What these hold the implementation to:
 - A member who already has a payment is never in the file. Paying twice is the
   one failure a payout file must make impossible.
 - Methods that cannot produce a file say so, with a reason a treasurer can act
-  on, instead of emitting a file that will bounce at the bank.
+  on, instead of emitting a file that bounces.
 """
 
 import csv
@@ -115,15 +115,53 @@ def test_cash_run_has_no_file(client, admin, farmer, produce_line, rate):
     assert "across the counter" in r.json()["detail"]
 
 
-def test_bank_run_says_what_is_missing(client, admin, farmer, produce_line, rate):
-    """No account numbers on members means no file — say so, do not guess."""
+def _set_bank(client, admin, farmer, bank: str = "KCB", account: str = "1234567890"):
+    r = client.patch(
+        f"/farmers/{farmer.id}",
+        json={"bank_name": bank, "bank_account_number": account},
+        headers=_auth(admin),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_bank_file_is_an_eft_schedule(client, admin, farmer, produce_line, rate):
+    """Every bank template needs a name, a bank, an account and an amount."""
+    _set_bank(client, admin, farmer)
+    _deliver(client, admin, farmer, produce_line)
+    run = _run(client, admin, method="bank_transfer")
+
+    r = client.get(f"/payout-runs/{run['id']}/rail-file", headers=_auth(admin))
+
+    assert r.status_code == 200, r.text
+    assert "bank-eft-" in r.headers["content-disposition"]
+    assert not r.content.startswith(b"\xef\xbb\xbf")
+
+    rows = _rows(r)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["Beneficiary"] == "Test Farmer"
+    assert row["Bank"] == "KCB"
+    assert row["AccountNumber"] == "1234567890"
+    assert row["Amount"] == "500.00"
+    assert row["Currency"] == "KES"
+    assert run["reference"] in row["Narration"]
+
+
+def test_bank_file_names_members_without_details(
+    client, admin, farmer, produce_line, rate
+):
+    """A member with no account is reported, never silently dropped."""
     _deliver(client, admin, farmer, produce_line)
     run = _run(client, admin, method="bank_transfer")
 
     r = client.get(f"/payout-runs/{run['id']}/rail-file", headers=_auth(admin))
 
     assert r.status_code == 409
-    assert "account number" in r.json()["detail"]
+    detail = r.json()["detail"]
+    assert "bank details" in detail
+    assert "Test Farmer" in detail
+    assert "account number" in detail
 
 
 def test_a_cancelled_run_produces_no_file(client, admin, farmer, produce_line, rate):

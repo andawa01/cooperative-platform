@@ -80,7 +80,7 @@ def _serialize_batch(batch: PayoutBatch, totals: tuple[Decimal, int, int, int]):
 
 
 def _serialize_items(db: Session, items: list[PayoutItem]) -> list[PayoutItemResponse]:
-    """Farmer names and phones resolved in one query for the whole run."""
+    """Farmer names and payout destinations, resolved in one query per run."""
     if not items:
         return []
 
@@ -98,6 +98,8 @@ def _serialize_items(db: Session, items: list[PayoutItem]) -> list[PayoutItemRes
                 farmer_id=item.farmer_id,
                 farmer_name=farmer.full_name if farmer else "Unknown farmer",
                 phone=farmer.phone if farmer else None,
+                bank_name=farmer.bank_name if farmer else None,
+                bank_account_number=(farmer.bank_account_number if farmer else None),
                 amount=item.amount,
                 currency=item.currency,
                 status=item.status,
@@ -278,6 +280,8 @@ def download_rail_file(
             farmer_id=item.farmer_id,
             farmer_name=item.farmer_name,
             phone=item.phone,
+            bank_name=item.bank_name,
+            bank_account_number=item.bank_account_number,
             amount=item.amount,
             currency=item.currency,
             status=item.status.value,

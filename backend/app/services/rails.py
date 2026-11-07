@@ -23,10 +23,11 @@ What the file is, and is not:
   failed, the row is retried — and a payment that was recorded but never
   arrived is corrected by reversing it, never by editing the file.
 
-Bank transfers are registered but refuse with an explanation: a bank EFT file
-needs an account number per member, and the member record does not capture one
-yet. Refusing is honest; emitting a file with a phone number in the account
-column is how a whole payroll bounces.
+The bank file is deliberately bank-agnostic: beneficiary, bank, account,
+amount, currency, narration. It carries no invented bank or branch codes,
+because a wrong code routes money to someone else — mapping this schedule onto
+one bank's bulk template is a per-bank adapter (D-036). A member without both
+a bank name and an account number is reported, not silently skipped.
 """
 
 import csv
@@ -61,17 +62,20 @@ class NothingToPay(RailError):
 
 
 class MissingDestination(RailError):
-    """A row has no phone number, so a mobile-money file cannot address it."""
+    """Rows lack the address the rail needs, so they cannot be paid by it."""
 
-    def __init__(self, members: Sequence[str]):
+    def __init__(
+        self,
+        members: Sequence[str],
+        *,
+        destination: str,
+        hint: str,
+    ):
         self.members = list(members)
         names = ", ".join(self.members[:5])
         if len(self.members) > 5:
             names += f" and {len(self.members) - 5} more"
-        super().__init__(
-            f"No phone number on file for {names}. Add one before generating "
-            "the file, or the member will be skipped without anyone noticing."
-        )
+        super().__init__(f"No {destination} on file for {names}. {hint}")
 
 
 @dataclass(frozen=True)
@@ -79,14 +83,16 @@ class RailRow:
     """
     One member's line, already resolved for the rail.
 
-    Deliberately not the ORM item: a rail needs a destination and a name, which
-    live on the farmer, and a file builder should not be able to reach back
-    into the session and issue a query per row (D-027).
+    Deliberately not the ORM item: a rail needs a destination, which lives on
+    the farmer, and a file builder should not be able to reach back into the
+    session and issue a query per row (D-027).
     """
 
     farmer_id: uuid.UUID
     farmer_name: str
     phone: str | None
+    bank_name: str | None
+    bank_account_number: str | None
     amount: Decimal
     currency: str
     status: str
@@ -160,7 +166,14 @@ def _mpesa(batch: PayoutBatch, rows: Sequence[RailRow], today: date) -> RailFile
 
     missing = [row.farmer_name for row in rows if not row.phone]
     if missing:
-        raise MissingDestination(missing)
+        raise MissingDestination(
+            missing,
+            destination="phone number",
+            hint=(
+                "Add one on the member record before generating the file, or "
+                "the member will be skipped without anyone noticing."
+            ),
+        )
 
     reference = batch.reference or f"RUN{batch.id.hex[:8].upper()}"
     unique_name = _unique_name(batch.reference, batch)
@@ -184,20 +197,52 @@ def _mpesa(batch: PayoutBatch, rows: Sequence[RailRow], today: date) -> RailFile
     )
 
 
-def _bank(batch: PayoutBatch, rows: Sequence[RailRow], today: date) -> RailFile:
-    """
-    Refuse rather than emit a file that cannot be paid.
+# Every Kenyan bank's bulk-payment template needs these; the codes and column
+# order differ per bank, which is the adapter's job (D-036).
+BANK_HEADER = (
+    "Beneficiary",
+    "Bank",
+    "AccountNumber",
+    "Amount",
+    "Currency",
+    "Narration",
+)
 
-    A bank EFT schedule identifies the beneficiary by bank and account number.
-    The member record carries a phone and a national id, neither of which a
-    bank can credit. Until account details exist on the member (and are
-    validated — a wrong digit here is money sent to a stranger), a bank run is
-    paid by recording the payments individually.
-    """
-    raise RailError(
-        "A bank file needs each member's bank and account number, which the "
-        "member record does not capture yet. Pay this run by mobile money, or "
-        "record the transfers individually."
+
+def _bank(batch: PayoutBatch, rows: Sequence[RailRow], today: date) -> RailFile:
+    missing = [
+        row.farmer_name
+        for row in rows
+        if not (row.bank_name and row.bank_account_number)
+    ]
+    if missing:
+        raise MissingDestination(
+            missing,
+            destination="bank details",
+            hint=(
+                "Add a bank name and account number on the member record, or "
+                "pay this run by mobile money instead."
+            ),
+        )
+
+    reference = batch.reference or f"RUN{batch.id.hex[:8].upper()}"
+    body = [
+        (
+            row.farmer_name,
+            row.bank_name or "",
+            row.bank_account_number or "",
+            _amount(row.amount),
+            row.currency,
+            f"Payout {reference}"[:100],
+        )
+        for row in rows
+    ]
+
+    return RailFile(
+        rail="bank_eft",
+        filename=_filename("bank-eft", batch, today),
+        content=_csv(BANK_HEADER, body),
+        row_count=len(body),
     )
 
 

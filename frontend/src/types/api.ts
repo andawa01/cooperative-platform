@@ -71,6 +71,9 @@ export interface Farmer {
   phone: string
   date_of_birth: string | null
   national_id: string | null
+  /** Bank destination for bank transfer runs; set together or not at all. */
+  bank_name: string | null
+  bank_account_number: string | null
   location: string | null
   notes: string | null
   status: FarmerStatus
@@ -87,6 +90,8 @@ export interface FarmerCreateRequest {
   phone: string
   date_of_birth?: string | null
   national_id?: string | null
+  bank_name?: string | null
+  bank_account_number?: string | null
   location?: string | null
   notes?: string | null
 }
@@ -96,6 +101,8 @@ export interface FarmerUpdateRequest {
   last_name?: string
   date_of_birth?: string | null
   national_id?: string | null
+  bank_name?: string | null
+  bank_account_number?: string | null
   location?: string | null
   notes?: string | null
 }
@@ -310,6 +317,8 @@ export interface PayoutItem {
   farmer_id: string
   farmer_name: string
   phone: string | null
+  bank_name: string | null
+  bank_account_number: string | null
   amount: string
   currency: string
   status: PayoutItemStatus

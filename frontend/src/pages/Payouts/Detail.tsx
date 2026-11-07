@@ -229,12 +229,14 @@ export default function PayoutRunDetail() {
         }
         action={
           <>
-            {batch.method === 'mobile_money' &&
+            {batch.method !== 'cash' &&
               outstanding > 0 &&
               batch.status !== 'cancelled' && (
                 <ExportButton
                   path={`/payout-runs/${batch.id}/rail-file`}
-                  label="M-Pesa file"
+                  label={
+                    batch.method === 'mobile_money' ? 'M-Pesa file' : 'Bank file'
+                  }
                 />
               )}
             <ExportButton
@@ -359,16 +361,16 @@ export default function PayoutRunDetail() {
             )}
             {batch.method === 'bank_transfer' && (
               <p>
-                Bank files need an account number on each member record, which
-                is not captured yet. Dispatch records the transfers
-                individually against this run.
+                The bank file lists only members with a bank name and account
+                number on their record. Add missing ones on the member page;
+                dispatch records the transfers against this run.
               </p>
             )}
-            {batch.status === 'approved' && batch.method === 'mobile_money' && (
+            {batch.status === 'approved' && batch.method !== 'cash' && (
               <p>
-                Download the M-Pesa file and upload it to the portal, then
-                dispatch. The file lists only members without a payment, so a
-                retry can never pay someone twice.
+                Download the payout file and upload it to the portal or bank,
+                then dispatch. The file lists only members without a payment,
+                so a retry can never pay someone twice.
               </p>
             )}
             {batch.status === 'draft' && (

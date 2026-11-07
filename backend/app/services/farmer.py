@@ -44,6 +44,10 @@ class InvalidPhoneFormat(Exception):
     """Raised when a phone cannot be normalized to E.164."""
 
 
+class IncompleteBankDetails(Exception):
+    """Bank name and account number must be set together (D-036)."""
+
+
 class FarmerNotMergeable(Exception):
     """Raised when attempting to merge in an invalid state."""
 
@@ -129,6 +133,10 @@ def create_farmer(
         phone=normalized_phone,
         date_of_birth=data.date_of_birth,
         national_id=(data.national_id.strip() if data.national_id else None),
+        bank_name=(data.bank_name.strip() if data.bank_name else None),
+        bank_account_number=(
+            data.bank_account_number.strip() if data.bank_account_number else None
+        ),
         location=(data.location.strip() if data.location else None),
         notes=data.notes,
         status=FarmerStatus.PENDING_VERIFICATION.value,
@@ -149,6 +157,8 @@ def create_farmer(
                 "last_name": farmer.last_name,
                 "phone": farmer.phone,
                 "national_id": farmer.national_id,
+                "bank_name": farmer.bank_name,
+                "bank_account_number": farmer.bank_account_number,
                 "status": farmer.status,
             },
         )
@@ -263,6 +273,13 @@ def update_farmer(
         before[key] = audit.snapshot(previous)
         after[key] = audit.snapshot(value)
         setattr(farmer, key, value)
+
+    # A PATCH can clear or set one half of the pair on its own (e.g. a client
+    # that only knows about account numbers). The stored row must never end up
+    # with half a destination, so check the resulting row, not the payload.
+    if (farmer.bank_name is None) != (farmer.bank_account_number is None):
+        db.rollback()
+        raise IncompleteBankDetails()
 
     if before:
         audit.record(
