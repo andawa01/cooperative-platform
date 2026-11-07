@@ -8,8 +8,10 @@
  */
 import { useEffect, useState } from 'react'
 import { Search, UserPlus } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button, ButtonLink } from '@/components/common/Button'
+import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { DataTable, type DataColumn } from '@/components/common/DataTable'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
@@ -27,6 +29,7 @@ export default function UsersList() {
   const [offset, setOffset] = useState(0)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null)
 
   // 300ms debounce, matching the farmers list.
   useEffect(() => {
@@ -44,25 +47,39 @@ export default function UsersList() {
   })
   const update = useUpdateUser()
 
-  const applyChange = async (id: string, body: Parameters<typeof update.mutate>[0]['body']) => {
+  const applyChange = async (
+    user: User,
+    body: Parameters<typeof update.mutate>[0]['body'],
+  ) => {
     setActionError(null)
     try {
-      await update.mutateAsync({ id, body })
+      await update.mutateAsync({ id: user.id, body })
+      if ('is_active' in body) {
+        toast.success(body.is_active ? 'Account reactivated' : 'Account deactivated', {
+          description: body.is_active
+            ? `${user.full_name} can sign in again.`
+            : `${user.full_name} was signed out immediately.`,
+        })
+      } else {
+        toast.success('Role updated', {
+          description: `${user.full_name} is now ${body.role}.`,
+        })
+      }
     } catch (err) {
-      setActionError((err as Error).message)
+      const message = (err as Error).message
+      setActionError(message)
+      toast.error('The change could not be saved', { description: message })
     }
   }
 
   const requestToggle = (user: User) => {
     // Deactivating signs the person out immediately, which is disruptive
     // enough to confirm — the same rule the farmer archive action follows.
-    if (
-      user.is_active &&
-      !confirm(`Deactivate ${user.full_name}? They are signed out now.`)
-    ) {
+    if (user.is_active) {
+      setDeactivateTarget(user)
       return
     }
-    applyChange(user.id, { is_active: !user.is_active })
+    applyChange(user, { is_active: true })
   }
 
   const columns: DataColumn<User>[] = [
@@ -118,7 +135,7 @@ export default function UsersList() {
           aria-label={`Role for ${user.full_name}`}
           disabled={user.id === me?.id || update.isPending}
           onChange={(event) =>
-            applyChange(user.id, { role: event.target.value as UserRole })
+            applyChange(user, { role: event.target.value as UserRole })
           }
           className="h-8 cursor-pointer rounded-lg border border-input bg-card px-2 text-[13px] text-stone-700 shadow-xs focus:border-primary-500 focus:ring-4 focus:ring-primary-500/12 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -229,6 +246,27 @@ export default function UsersList() {
         Deactivating an account signs it out immediately — its existing tokens
         stop working rather than waiting to expire.
       </p>
+
+      <ConfirmDialog
+        open={deactivateTarget !== null}
+        title={`Deactivate ${deactivateTarget?.full_name ?? 'this account'}?`}
+        tone="danger"
+        confirmLabel="Deactivate"
+        busy={update.isPending}
+        onClose={() => setDeactivateTarget(null)}
+        onConfirm={async () => {
+          if (deactivateTarget) {
+            await applyChange(deactivateTarget, { is_active: false })
+          }
+          setDeactivateTarget(null)
+        }}
+        description={
+          <p>
+            They are signed out now and cannot sign in again until an admin
+            reactivates the account. Their history stays intact.
+          </p>
+        }
+      />
     </div>
   )
 }

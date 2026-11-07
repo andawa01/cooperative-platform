@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowRight, RotateCcw } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/common/Button'
 import {
@@ -52,8 +53,13 @@ export default function PaymentDetail() {
     try {
       await reverse.mutateAsync({ reason: reason.trim() })
       navigate('/payments')
+      toast.success('Payment reversed', {
+        description: 'A reversal record was created and the money returned to the balance.',
+      })
     } catch (err) {
-      setActionError((err as Error).message)
+      const message = (err as Error).message
+      setActionError(message)
+      toast.error('Could not reverse the payment', { description: message })
     }
   }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Loader2, UserPlus } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { ApiError } from '@/lib/api'
 import { useCreateFarmer } from '@/hooks/useFarmers'
@@ -47,21 +48,24 @@ export default function NewFarmer() {
         notes: form.notes.trim() || null,
       })
       navigate(`/farmers/${farmer.id}`, { replace: true })
+      toast.success('Farmer registered', {
+        description: `${farmer.first_name} ${farmer.last_name} starts as pending verification.`,
+      })
     } catch (err) {
+      let message = 'Something went wrong.'
       if (err instanceof ApiError) {
         if (err.status === 409) {
-          setError('That phone or national ID is already registered.')
+          message = 'That phone or national ID is already registered.'
         } else if (err.status === 422) {
-          setError(
+          message =
             'Please check the form — one or more fields are invalid ' +
-              '(phone must be a valid format).',
-          )
+            '(phone must be a valid format).'
         } else {
-          setError(err.message)
+          message = err.message
         }
-      } else {
-        setError('Something went wrong.')
       }
+      setError(message)
+      toast.error('Farmer could not be registered', { description: message })
     }
   }
 

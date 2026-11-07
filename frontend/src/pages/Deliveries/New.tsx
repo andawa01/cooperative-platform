@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Check, Loader2, Package } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { FarmerPicker } from '@/components/common/FarmerPicker'
 import { Button } from '@/components/common/Button'
@@ -70,12 +71,14 @@ export default function NewDelivery() {
         notes: notes.trim() || null,
       })
       navigate(`/deliveries/${delivery.id}`, { replace: true })
+      toast.success('Delivery recorded', {
+        description: `${q.toLocaleString()}${selectedLine ? ` ${selectedLine.unit}` : ''} for ${farmer.first_name} ${farmer.last_name}${selectedLine ? ` · ${selectedLine.name}` : ''}.`,
+      })
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else {
-        setError('Something went wrong.')
-      }
+      const message =
+        err instanceof ApiError ? err.message : 'Something went wrong.'
+      setError(message)
+      toast.error('Delivery could not be recorded', { description: message })
     }
   }
 

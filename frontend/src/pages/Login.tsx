@@ -48,7 +48,7 @@ export default function Login() {
       navigate(location.state?.from ?? '/', { replace: true })
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        setError('Invalid email or password.')
+        setError('Invalid credentials.')
       } else if (err instanceof ApiError && err.status === 429) {
         // The account is locked after too many failures. Say how long, so
         // the clerk stops retrying instead of assuming the app is broken.

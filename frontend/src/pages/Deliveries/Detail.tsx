@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowRight, RefreshCw, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/common/Button'
 import {
@@ -54,8 +55,13 @@ export default function DeliveryDetail() {
     setActionError(null)
     try {
       await value.mutateAsync()
+      toast.success('Delivery valued', {
+        description: 'The rate snapshot was applied — it can now be paid against.',
+      })
     } catch (err) {
-      setActionError((err as Error).message)
+      const message = (err as Error).message
+      setActionError(message)
+      toast.error('Valuation failed', { description: message })
     }
   }
 
@@ -68,8 +74,13 @@ export default function DeliveryDetail() {
     try {
       await reverse.mutateAsync({ reason: reason.trim() })
       navigate('/deliveries')
+      toast.success('Delivery reversed', {
+        description: 'A reversal record was created and the value removed from the balance.',
+      })
     } catch (err) {
-      setActionError((err as Error).message)
+      const message = (err as Error).message
+      setActionError(message)
+      toast.error('Could not reverse the delivery', { description: message })
     }
   }
 

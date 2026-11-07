@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Loader2, Power, TrendingUp } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/common/Button'
+import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { Card, CardBody, CardHeader } from '@/components/common/Card'
 import {
   Field,
@@ -35,6 +37,7 @@ export default function ProduceDetail() {
   const [effectiveFrom, setEffectiveFrom] = useState(toIsoDate())
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [deactivateOpen, setDeactivateOpen] = useState(false)
 
   if (line.isLoading) return <Loading />
   if (line.error)
@@ -75,23 +78,35 @@ export default function ProduceDetail() {
       setSuccessMessage(msg)
       setNewRate('')
       setShowRateForm(false)
+      if (affected > 0) {
+        toast.warning('Rate set — some deliveries may need review', {
+          description: `${affected} deliver${affected === 1 ? 'y' : 'ies'} recorded in the affected window.`,
+        })
+      } else {
+        toast.success('Rate set', {
+          description: 'Past deliveries keep their snapshot; new ones use this rate.',
+        })
+      }
     } catch (err) {
-      setError((err as Error).message)
+      const message = (err as Error).message
+      setError(message)
+      toast.error('Rate could not be saved', { description: message })
     }
   }
 
   const doDeactivate = async () => {
-    if (
-      !confirm(
-        'Deactivate this produce line? Historical deliveries remain valid. New deliveries cannot be recorded against it.',
-      )
-    )
-      return
     setError(null)
     try {
       await deactivate.mutateAsync()
+      setDeactivateOpen(false)
+      toast.success('Produce line deactivated', {
+        description: 'Historical deliveries remain valid.',
+      })
     } catch (err) {
-      setError((err as Error).message)
+      const message = (err as Error).message
+      setError(message)
+      setDeactivateOpen(false)
+      toast.error('Could not deactivate the line', { description: message })
     }
   }
 
@@ -117,7 +132,7 @@ export default function ProduceDetail() {
           l.is_active && (
             <Button
               variant="danger"
-              onClick={doDeactivate}
+              onClick={() => setDeactivateOpen(true)}
               disabled={deactivate.isPending}
             >
               <Power className="h-4 w-4" />
@@ -300,6 +315,22 @@ export default function ProduceDetail() {
           </ul>
         )}
       </Card>
+
+      <ConfirmDialog
+        open={deactivateOpen}
+        title={`Deactivate ${l.name}?`}
+        tone="danger"
+        confirmLabel="Deactivate line"
+        busy={deactivate.isPending}
+        onClose={() => setDeactivateOpen(false)}
+        onConfirm={doDeactivate}
+        description={
+          <p>
+            Historical deliveries remain valid. New deliveries cannot be
+            recorded against it.
+          </p>
+        }
+      />
     </div>
   )
 }

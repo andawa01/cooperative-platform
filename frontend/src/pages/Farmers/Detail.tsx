@@ -10,8 +10,10 @@ import {
   Package,
   TriangleAlert,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button, ButtonLink } from '@/components/common/Button'
+import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import {
   Card,
   CardBody,
@@ -40,6 +42,7 @@ export default function FarmerDetail() {
   const verify = useVerifyFarmer(id!)
   const archive = useArchiveFarmer(id!)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [archiveOpen, setArchiveOpen] = useState(false)
 
   if (farmer.isLoading) return <Loading />
   if (farmer.error)
@@ -61,18 +64,29 @@ export default function FarmerDetail() {
     setActionError(null)
     try {
       await verify.mutateAsync()
+      toast.success('Farmer verified', {
+        description: `${f.first_name} ${f.last_name} can now receive deliveries and payments.`,
+      })
     } catch (err) {
-      setActionError((err as Error).message)
+      const message = (err as Error).message
+      setActionError(message)
+      toast.error('Could not verify the farmer', { description: message })
     }
   }
 
   const doArchive = async () => {
     setActionError(null)
-    if (!confirm('Archive this farmer? Historical records are preserved.')) return
     try {
       await archive.mutateAsync()
+      setArchiveOpen(false)
+      toast.success('Farmer archived', {
+        description: 'Historical records are preserved.',
+      })
     } catch (err) {
-      setActionError((err as Error).message)
+      const message = (err as Error).message
+      setActionError(message)
+      setArchiveOpen(false)
+      toast.error('Could not archive the farmer', { description: message })
     }
   }
 
@@ -104,7 +118,7 @@ export default function FarmerDetail() {
             {isAdmin && canArchive && (
               <Button
                 variant="danger"
-                onClick={doArchive}
+                onClick={() => setArchiveOpen(true)}
                 disabled={archive.isPending}
               >
                 <Archive className="h-4 w-4" />
@@ -362,6 +376,22 @@ export default function FarmerDetail() {
           </CardBody>
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={archiveOpen}
+        title={`Archive ${f.first_name} ${f.last_name}?`}
+        tone="danger"
+        confirmLabel="Archive farmer"
+        busy={archive.isPending}
+        onClose={() => setArchiveOpen(false)}
+        onConfirm={doArchive}
+        description={
+          <p>
+            They will stop appearing in pickers and cannot receive new
+            deliveries or payments. Historical records are preserved.
+          </p>
+        }
+      />
     </div>
   )
 }

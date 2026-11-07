@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowRight, RotateCcw } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/common/Button'
 import {
@@ -50,8 +51,13 @@ export default function DeductionDetail() {
     try {
       await reverse.mutateAsync({ reason: reason.trim() })
       navigate('/deductions')
+      toast.success('Deduction reversed', {
+        description: 'The withheld amount is back in the member’s payable.',
+      })
     } catch (err) {
-      setActionError((err as Error).message)
+      const message = (err as Error).message
+      setActionError(message)
+      toast.error('Could not reverse the deduction', { description: message })
     }
   }
 
