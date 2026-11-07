@@ -2678,3 +2678,71 @@ but write no audit entry, because nothing changed.
   number is never truncated, it is rejected.
 - CSV formula injection is not a concern here: nothing from this file is ever
   rendered as a spreadsheet by us, and the values are validated digits/names.
+
+## D-038 — Money above a threshold needs a second admin
+
+By the time payout rails existed, one admin could reverse any payment, reverse
+any deduction, approve a run, and dispatch it. Each of those is a legitimate
+daily task and each is also the exact shape of an insider loss: the ledger
+would record it, but nobody would have had to agree to it. This is the
+maker-checker control the gap analysis asked for.
+
+**Decision — the gate is on reversals and dispatches, not on recording.**
+
+Gated actions: `payment.reverse`, `deduction.reverse`, `payout.dispatch`.
+Recording a delivery, payment or deduction stays immediate — a clerk at the
+counter cannot wait for an approver, and money coming *in* is not the risk.
+A dispatch is gated by the amount still owed by the run (pending + failed
+items), not the run's original total: a retry of a partly-paid run releases a
+smaller number, and that is the figure the approver should see.
+
+`MAKER_CHECKER_THRESHOLD` defaults to **20,000** (in `default_currency`) and
+is compared with `>=`. Zero means every listed action needs approval; it is
+read at request time *and* at execution time, so raising it does not
+retroactively bless a pending request.
+
+**Decision — the existing endpoints stay the endpoints.**
+
+The direct call is still `POST /payments/{id}/reverse`. Above the limit it
+returns **409** with `X-Approval-Required: true` and a message naming the
+amount and the limit. The request itself is a separate, explicit act:
+`POST /approvals` with `{action, entity_id, reason}`. The UI turns the 409
+into that call, so the admin does not read a dead end, but the server never
+fabricates a request as a side effect of a refused write.
+
+**Decision — the server derives what the approver is agreeing to.**
+
+The client sends the subject, never the amount. The service reads the
+payment/deduction/run and snapshots `amount`, `currency`, `summary` and the
+requester's reason on the request row. An approval therefore cannot describe
+KES 5,000 and release KES 25,000, and a balance that moves afterwards does not
+change what was approved.
+
+**Decision — approval executes through the same service function.**
+
+Approving calls `payment.reverse_payment`, `deduction.reverse_deduction` or
+`payout.dispatch_batch` with the **approving** admin as the actor. Allocation,
+locking, reversal shape, SMS and audit entries are therefore identical to the
+direct path; the audit trail names the admin who released the money, plus
+`approval.request` / `approval.approve` / `approval.reject` entries for the
+decision itself. There is no second write path to drift.
+
+**Decision — two people, enforced by the database.**
+
+`requested_by_id <> decided_by_id` and "a decision has both an author and a
+time" are CHECK constraints, not service conventions. The service also
+refuses self-approval with a readable 409. A partial unique index keeps one
+pending request per subject, so a double click returns the existing request.
+
+**Consequences:**
+- A request whose subject was settled while it waited (payment already
+  reversed, run already dispatched) is **rejected automatically** as no
+  longer applicable, with the reason stored, instead of lingering in the
+  queue or paying twice.
+- Requests are admin-only, including reading the queue; clerks never see who
+  is asking to move money.
+- Rate changes are not gated. A rate is effective-dated pricing data, not a
+  release of money, and holding a new season's rate behind an approval would
+  stall intake with no reduction in loss exposure.
+- The refusal is 409 rather than 202 so "nothing happened" is unambiguous;
+  the header is what makes it actionable in the UI.

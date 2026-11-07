@@ -386,12 +386,55 @@ export interface PayoutDispatchResult {
   paid: number
   failed: number
   pending: number
+}// ---------------------------------------------------------------------------
+// Approvals (maker-checker, D-038)
+// ---------------------------------------------------------------------------
+
+export type ApprovalAction =
+  | 'payment.reverse'
+  | 'deduction.reverse'
+  | 'payout.dispatch'
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
+
+/**
+ * A second-admin request. `amount` and `summary` are snapshotted by the
+ * server when the request is made, so the approver sees the same figure the
+ * requester did.
+ */
+export interface Approval {
+  id: string
+  action: ApprovalAction
+  entity_type: 'payment' | 'deduction' | 'payout'
+  entity_id: string
+  amount: string | null
+  currency: string | null
+  summary: string
+  reason: string | null
+  status: ApprovalStatus
+  requested_by_id: string
+  requested_by_name: string
+  decided_by_id: string | null
+  decided_by_name: string | null
+  decided_at: string | null
+  decision_note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApprovalCreateRequest {
+  action: ApprovalAction
+  entity_id: string
+  reason?: string | null
+}
+
+export interface ApprovalDecisionRequest {
+  note?: string | null
 }
 
 // ---------------------------------------------------------------------------
 // Balance and statement
 // ---------------------------------------------------------------------------
-
 export interface Balance {
   farmer_id: string
   currency: string

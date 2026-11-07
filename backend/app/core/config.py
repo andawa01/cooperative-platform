@@ -5,6 +5,7 @@ Reads from environment variables (or a .env file in dev). Centralised here so
 no other module ever calls os.getenv() directly — that gets messy fast.
 """
 
+from decimal import Decimal
 from pathlib import Path
 
 from pydantic import field_validator
@@ -36,6 +37,12 @@ class Settings(BaseSettings):
     # never had a rate. Replaced by the cooperative's currency when
     # multi-cooperative support arrives. See D-019.
     default_currency: str = "KES"
+
+    # Maker-checker (D-038): reversals and payout dispatches at or above this
+    # amount require a second admin. Zero means every one of them does. This
+    # is per amount, not per currency — all money is in `default_currency`
+    # until multi-cooperative support lands.
+    maker_checker_threshold: Decimal = Decimal("20000")
 
     # --- Observability ------------------------------------------------
     # JSON lines on stdout by default; set LOG_JSON=false for readable local
@@ -136,6 +143,13 @@ class Settings(BaseSettings):
     def _cors_not_empty(cls, value: str) -> str:
         if not [o for o in value.split(",") if o.strip()]:
             raise ValueError("CORS_ORIGINS must list at least one origin")
+        return value
+
+    @field_validator("maker_checker_threshold")
+    @classmethod
+    def _threshold_not_negative(cls, value: Decimal) -> Decimal:
+        if value < 0:
+            raise ValueError("MAKER_CHECKER_THRESHOLD must be zero or more")
         return value
 
 

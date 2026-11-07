@@ -13,8 +13,10 @@ import {
 import { ErrorState, Loading } from '@/components/common/Loading'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
+import { useCreateApproval } from '@/hooks/useApprovals'
 import { useAuth } from '@/hooks/useAuth'
 import { useDeduction, useReverseDeduction } from '@/hooks/useDeductions'
+import { ApiError } from '@/lib/api'
 import { formatMoney } from '@/lib/auth'
 import { formatDate, formatDateTime } from '@/lib/datetime'
 import { reasonLabel } from '@/lib/deductions'
@@ -25,6 +27,7 @@ export default function DeductionDetail() {
   const { isAdmin } = useAuth()
   const deduction = useDeduction(id)
   const reverse = useReverseDeduction(id!)
+  const createApproval = useCreateApproval()
   const [actionError, setActionError] = useState<string | null>(null)
 
   if (deduction.isLoading) return <Loading />
@@ -55,6 +58,28 @@ export default function DeductionDetail() {
         description: 'The withheld amount is back in the member’s payable.',
       })
     } catch (err) {
+      // Above the limit: queue it for a different admin instead of failing
+      // with nothing to do next (D-038).
+      if (err instanceof ApiError && err.approvalRequired) {
+        try {
+          await createApproval.mutateAsync({
+            action: 'deduction.reverse',
+            entity_id: d.id,
+            reason: reason.trim(),
+          })
+          toast.success('Sent for approval', {
+            description:
+              'This reversal is above the limit, so a different admin must approve it before it happens.',
+          })
+        } catch (requestErr) {
+          const requestMessage = (requestErr as Error).message
+          setActionError(requestMessage)
+          toast.error('Could not request approval', {
+            description: requestMessage,
+          })
+        }
+        return
+      }
       const message = (err as Error).message
       setActionError(message)
       toast.error('Could not reverse the deduction', { description: message })

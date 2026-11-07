@@ -15,6 +15,10 @@ import type { DashboardSummary } from '../types/api'
 import { clearToken, getToken } from './auth'
 import type {
   AllocationInput,
+  Approval,
+  ApprovalCreateRequest,
+  ApprovalDecisionRequest,
+  ApprovalStatus,
   AuditEntry,
   Balance,
   BankDetailsImportRequest,
@@ -58,8 +62,18 @@ export class ApiError extends Error {
   detail: unknown
   /** Seconds from a 429's `Retry-After`, when the server sent one. */
   retryAfter: number | null
+  /**
+   * The money move was refused because it crosses the maker-checker limit
+   * (D-038). The UI offers "request approval" rather than showing a dead end.
+   */
+  approvalRequired: boolean
 
-  constructor(status: number, detail: unknown, retryAfter: number | null = null) {
+  constructor(
+    status: number,
+    detail: unknown,
+    retryAfter: number | null = null,
+    approvalRequired = false,
+  ) {
     super(
       typeof detail === 'string'
         ? detail
@@ -68,6 +82,7 @@ export class ApiError extends Error {
     this.status = status
     this.detail = detail
     this.retryAfter = retryAfter
+    this.approvalRequired = approvalRequired
   }
 }
 
@@ -120,6 +135,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
       res.status,
       data,
       Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
+      res.headers.get('x-approval-required') === 'true',
     )
   }
   return data as T
@@ -276,6 +292,20 @@ export const api = {
       }),
     cancel: (id: string) =>
       request<PayoutBatchDetail>(`/payout-runs/${id}/cancel`, { method: 'POST' }),
+  },
+
+  approvals: {
+    list: (params: {
+      status?: ApprovalStatus
+      limit?: number
+      offset?: number
+    } = {}) => request<Paginated<Approval>>('/approvals', { query: params }),
+    create: (body: ApprovalCreateRequest) =>
+      request<Approval>('/approvals', { method: 'POST', body }),
+    approve: (id: string, body: ApprovalDecisionRequest = {}) =>
+      request<Approval>(`/approvals/${id}/approve`, { method: 'POST', body }),
+    reject: (id: string, body: ApprovalDecisionRequest = {}) =>
+      request<Approval>(`/approvals/${id}/reject`, { method: 'POST', body }),
   },
 
   notifications: {

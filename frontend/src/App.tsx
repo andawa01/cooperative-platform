@@ -45,6 +45,7 @@ const ProduceDetail = lazy(() => import('@/pages/Produce/Detail'))
 const FarmerStatement = lazy(() => import('@/pages/Farmers/Statement'))
 
 const AuditList = lazy(() => import('@/pages/Audit/List'))
+const ApprovalsList = lazy(() => import('@/pages/Approvals/List'))
 const UsersList = lazy(() => import('@/pages/Users/List'))
 const NewUser = lazy(() => import('@/pages/Users/New'))
 
@@ -305,6 +306,16 @@ export default function App() {
               <RequireRole roles={['admin']}>
                 <Suspense fallback={<Loading />}>
                   <AuditList />
+                </Suspense>
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/approvals"
+            element={
+              <RequireRole roles={['admin']}>
+                <Suspense fallback={<Loading />}>
+                  <ApprovalsList />
                 </Suspense>
               </RequireRole>
             }

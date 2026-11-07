@@ -6,6 +6,7 @@ and only imported models are registered in it. If you forget to import a model
 here, Alembic will silently miss it and propose to DROP the table next run.
 """
 
+from app.models.approval import ApprovalRequest, ApprovalStatus
 from app.models.deduction import Deduction, DeductionReason
 from app.models.delivery import Delivery
 from app.models.farmer import Farmer, FarmerStatus
@@ -34,6 +35,8 @@ __all__ = [
     "Delivery",
     "Deduction",
     "DeductionReason",
+    "ApprovalRequest",
+    "ApprovalStatus",
     "PayoutBatch",
     "PayoutItem",
     "PayoutItemStatus",

@@ -24,6 +24,7 @@ import {
   Package,
   Receipt,
   ScrollText,
+  ShieldCheck,
   Sprout,
   Sun,
   UserCog,
@@ -66,6 +67,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: '/produce', label: 'Produce & Rates', icon: Sprout, adminOnly: true },
       { to: '/notifications', label: 'Notifications', icon: Bell, adminOnly: true },
+      { to: '/approvals', label: 'Approvals', icon: ShieldCheck, adminOnly: true },
       { to: '/users', label: 'Users', icon: UserCog, adminOnly: true },
       { to: '/audit', label: 'Audit log', icon: ScrollText, adminOnly: true },
       { to: '/account', label: 'Account', icon: KeyRound },
