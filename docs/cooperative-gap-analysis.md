@@ -186,6 +186,10 @@ Ranked by how much they distort the product if left out:
 5. **A member-facing surface.** Everything is clerk-mediated. A farmer cannot check their own balance,
    which is precisely the trust problem the brief names.
 
+_Status: gaps 1 (deductions), 3 (collection points; clerk scoping still open) and 4 (payment runs +
+rails) have shipped. Grading/rejection and the member-facing surface are the structural gaps still
+open._
+
 ---
 
 ## 4. Build backlog (one by one)
@@ -193,31 +197,14 @@ Ranked by how much they distort the product if left out:
 Ordered so each item ships on top of what exists, with the fewest forced rewrites.
 Sizes are relative: **S** ≈ a day, **M** ≈ a few days, **L** ≈ a week or more.
 
-### Wave 0 — close the loops already built (no new domain)
-
-| # | Item | Size | Notes |
-|---|---|---|---|
-| 0.1 | Statements screen in the frontend | S | API exists (`GET /farmers/{id}/statement`); route + print view. Highest value per hour in the whole list. |
-| 0.2 | Audit log screen (admin) | S | API exists; filter by action/actor/date. Makes the security work visible. |
-| 0.3 | CSV export on every list | S | Server-side streaming export; the accountant's first request in every demo. |
-| 0.4 | User management (admin) | M | List users, create, change role, deactivate. Today roles can only be set at registration. |
-| 0.5 | Delivery receipt number | S | Human-readable sequential ref (per co-op, per year) quoted by farmers and printed on the SMS. |
-
-### Wave 1 — make the money match reality
-
-| # | Item | Size | Depends on | Notes |
-|---|---|---|---|---|
-| 1.1 | **Deduction ledger** | L | — | New `deduction` rows (signed, reversal-capable, `reason_code`, `rate`/`amount`, source entity). `compute_balance` gains `net_payable = value − allocations − deductions`. Reason codes seeded: transport, cess, input credit, loan recovery, fee, withholding tax. Statement gains a deduction line. **Forces a D-03x decision: deductions are liabilities of the member, so they change the definition of "outstanding debt".** |
-| 1.2 | **Payment runs** | L | 1.1 | `payout_batch` + `payout_item`; select members with payable > 0; approve (admin) → dispatch; per-item status (pending/sent/failed); retry failed; idempotent per item. |
-| 1.3 | Payout rail (M-Pesa B2C / bank file) | M | 1.2 | Start with a generated bank/CSV file (no vendor dependency), then one gateway integration behind the same interface. Webhook or poll for per-row result. |
-| 1.4 | Payment advice SMS with breakdown | S | 1.1 | "KES 3,980 sent. Cherry 80kg = 4,800, less input 620, transport 200." |
-| 1.5 | Maker-checker on money writes | M | — | Reversals and rate changes above a threshold require a second admin. New `approval_request` table; endpoints stay the same. |
+Waves 0 and 1 (statements screen, audit screen, list exports, user management, receipt numbers,
+deduction ledger, payment runs, payout rails, advice SMS, maker-checker) are **shipped and removed
+from this list**; see the progress note above. The backlog starts at what is still open.
 
 ### Wave 2 — intake fidelity
 
 | # | Item | Size | Depends on | Notes |
 |---|---|---|---|---|
-| 2.1 | **Collection points + structured geography** | M | — | **Shipped 2026-11-07 (D-039):** `collection_points` (name, unique canonical code, county/ward/zone, scale id, active flag), `farmer.collection_point_id`, `delivery.collection_point_id` (inherits the member's point, independent of later moves), delivery/farmer filters, and `GET /reports/production-by-point` (net intake, reversals included, unassigned row). **Remaining:** clerk-to-point scoping (belongs with 3.4 expanded roles) and route planning. |
 | 2.2 | **Grading & quality** | L | 2.1 | `produce_grade` + rate per grade; `delivery.grade`, `delivery.moisture`, `delivery.rejected_quantity`. Rejected quantity is *not* a reversal — it is a separate fact with a reason. Forces a D-03x decision on partial acceptance. |
 | 2.3 | Dairy tests (shift, fat, SNF) | M | 2.2 | Only if the co-op is dairy; otherwise skip. |
 | 2.4 | Seasons | M | — | `season` entity; deliveries, rates and payouts tagged by season. Enables season-over-season reporting and the "final payment" concept. |
@@ -269,34 +256,33 @@ Sizes are relative: **S** ≈ a day, **M** ≈ a few days, **L** ≈ a week or m
 
 If the goal is "a cooperative could actually run a season on this", build in this order:
 
-1. **0.1 + 0.2 + 0.3** (statement screen, audit screen, CSV export) — one short wave that makes
-   the existing depth visible. A week of work at most, and it changes how the product reads.
-2. **1.1 Deductions, then 1.2 Payment runs** — turns "we computed what we owe you" into
-   "we paid you, and here is the arithmetic". This is the credibility milestone.
-3. **2.1 Collection points + 2.2 Grading** — turns one anonymous pile of produce into
-   per-point, per-grade, per-zone reality, which is what management and buyers ask for.
+1. **2.2 Grading & rejection** — the last intake-fidelity gap. Without it quality is invisible and
+   every delivery is "the same stuff"; it also unlocks grade-based rates and rejections.
+2. **2.4 Seasons** — tags deliveries, rates and payouts by season, which is the prerequisite for
+   season-over-season reporting and a real "final payment".
+3. **3.1 Cooperative / branch tenancy, then 3.4 expanded roles** — the largest structural change;
+   do it once 2.x has been used against real data, before more tables accumulate.
 
-Everything in Wave 3+ should wait until 1.x and 2.x have been used against real data;
-tenancy in particular is cheaper to add once the shape of "what belongs to a co-op" is settled
-by the features that came before it.
+Everything in Wave 4+ should wait until these land; tenancy in particular is cheaper once the shape
+of "what belongs to a co-op" is settled by the features that came before it.
 
 ---
 
-## 6. Decisions this backlog will force
+## 6. Decisions the remaining backlog will force
 
-Record these in `DECISIONS.md` before the corresponding code lands, not after:
+Record these in `DECISIONS.md` before the corresponding code lands, not after. (The deduction
+ledger, payout rail, bank details, CSV import, maker-checker and collection points are already
+recorded as D-031–D-039.)
 
-- **D-03x — Deductions are a third ledger direction.** Does `outstanding_debt` become
-  `value − allocations`, with deductions netted only at payout, or does a deduction immediately
-  reduce what is owed? The statement's running pair (D-021) must stay coherent either way.
-- **D-03x — Partial acceptance vs. reversal.** Grading introduces a quantity the co-op refuses
+- **D-04x — Partial acceptance vs. reversal.** Grading introduces a quantity the co-op refuses
   to pay for. Is that a field on the delivery (`rejected_quantity`) or a separate negative
   entry? The former is honest to the physical event; the latter reuses the reversal machinery
   but contradicts D-008's "reversal undoes the whole delivery".
-- **D-03x — Tenancy scope.** `cooperative_id` on every table, or a co-op-per-deployment model?
+- **D-04x — Tenancy scope.** `cooperative_id` on every table, or a co-op-per-deployment model?
   The answer determines whether Wave 3.1 is a migration or a deployment decision.
-- **D-03x — Who may move money.** Maker-checker thresholds, and whether a clerk can ever
-  record a payout (today a clerk can create a payment, and only admin can reverse one).
-- **D-03x — A farmer is a user.** D-002/D-006 deliberately kept farmers out of `users`.
+- **D-04x — Clerk-to-point scope.** Collection points exist (D-039) but no client is scoped to
+  one yet. Decide whether scope is a user field checked in the service, or a role/assignment
+  table, before 3.4.
+- **D-04x — A farmer is a user.** D-002/D-006 deliberately kept farmers out of `users`.
   Member self-service forces a link table and a distinct permission scope — decide the shape
   before Wave 6.2, not during it.
