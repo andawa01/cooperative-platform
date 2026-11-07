@@ -16,6 +16,7 @@ import { ExportButton } from '@/components/common/ExportButton'
 import { ErrorState, Loading } from '@/components/common/Loading'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
+import { useCreateApproval } from '@/hooks/useApprovals'
 import { useAuth } from '@/hooks/useAuth'
 import {
   useApprovePayoutRun,
@@ -23,6 +24,7 @@ import {
   useDispatchPayoutRun,
   usePayoutRun,
 } from '@/hooks/usePayouts'
+import { ApiError } from '@/lib/api'
 import { formatMoney } from '@/lib/auth'
 import { formatDateTime } from '@/lib/datetime'
 import { cn } from '@/lib/utils'
@@ -56,6 +58,7 @@ export default function PayoutRunDetail() {
   const approve = useApprovePayoutRun(id!)
   const dispatch = useDispatchPayoutRun(id!)
   const cancel = useCancelPayoutRun(id!)
+  const createApproval = useCreateApproval()
   const [actionError, setActionError] = useState<string | null>(null)
   const [dialog, setDialog] = useState<'dispatch' | 'cancel' | null>(null)
   const [outcome, setOutcome] = useState<{
@@ -122,6 +125,30 @@ export default function PayoutRunDetail() {
         })
       }
     } catch (err) {
+      // A run that still owes at or above the limit is refused until another
+      // admin approves it. Ask for that approval, with the run reference so
+      // the queue reads like a payout, not like an ID (D-038).
+      if (err instanceof ApiError && err.approvalRequired) {
+        setDialog(null)
+        try {
+          await createApproval.mutateAsync({
+            action: 'payout.dispatch',
+            entity_id: batch.id,
+            reason: `Dispatch ${batch.reference ?? 'payout run'}`,
+          })
+          toast.success('Sent for approval', {
+            description:
+              'This run is above the limit, so a different admin must approve the dispatch before anyone is paid.',
+          })
+        } catch (requestErr) {
+          const requestMessage = (requestErr as Error).message
+          setActionError(requestMessage)
+          toast.error('Could not request approval', {
+            description: requestMessage,
+          })
+        }
+        return
+      }
       const message = (err as Error).message
       setActionError(message)
       setDialog(null)

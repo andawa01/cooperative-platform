@@ -2678,3 +2678,121 @@ but write no audit entry, because nothing changed.
   number is never truncated, it is rejected.
 - CSV formula injection is not a concern here: nothing from this file is ever
   rendered as a spreadsheet by us, and the values are validated digits/names.
+
+## D-038 — Money above a threshold needs a second admin
+
+By the time payout rails existed, one admin could reverse any payment, reverse
+any deduction, approve a run, and dispatch it. Each of those is a legitimate
+daily task and each is also the exact shape of an insider loss: the ledger
+would record it, but nobody would have had to agree to it. This is the
+maker-checker control the gap analysis asked for.
+
+**Decision — the gate is on reversals and dispatches, not on recording.**
+
+Gated actions: `payment.reverse`, `deduction.reverse`, `payout.dispatch`.
+Recording a delivery, payment or deduction stays immediate — a clerk at the
+counter cannot wait for an approver, and money coming *in* is not the risk.
+A dispatch is gated by the amount still owed by the run (pending + failed
+items), not the run's original total: a retry of a partly-paid run releases a
+smaller number, and that is the figure the approver should see.
+
+`MAKER_CHECKER_THRESHOLD` defaults to **20,000** (in `default_currency`) and
+is compared with `>=`. Zero means every listed action needs approval; it is
+read at request time *and* at execution time, so raising it does not
+retroactively bless a pending request.
+
+**Decision — the existing endpoints stay the endpoints.**
+
+The direct call is still `POST /payments/{id}/reverse`. Above the limit it
+returns **409** with `X-Approval-Required: true` and a message naming the
+amount and the limit. The request itself is a separate, explicit act:
+`POST /approvals` with `{action, entity_id, reason}`. The UI turns the 409
+into that call, so the admin does not read a dead end, but the server never
+fabricates a request as a side effect of a refused write.
+
+**Decision — the server derives what the approver is agreeing to.**
+
+The client sends the subject, never the amount. The service reads the
+payment/deduction/run and snapshots `amount`, `currency`, `summary` and the
+requester's reason on the request row. An approval therefore cannot describe
+KES 5,000 and release KES 25,000, and a balance that moves afterwards does not
+change what was approved.
+
+**Decision — approval executes through the same service function.**
+
+Approving calls `payment.reverse_payment`, `deduction.reverse_deduction` or
+`payout.dispatch_batch` with the **approving** admin as the actor. Allocation,
+locking, reversal shape, SMS and audit entries are therefore identical to the
+direct path; the audit trail names the admin who released the money, plus
+`approval.request` / `approval.approve` / `approval.reject` entries for the
+decision itself. There is no second write path to drift.
+
+**Decision — two people, enforced by the database.**
+
+`requested_by_id <> decided_by_id` and "a decision has both an author and a
+time" are CHECK constraints, not service conventions. The service also
+refuses self-approval with a readable 409. A partial unique index keeps one
+pending request per subject, so a double click returns the existing request.
+
+**Consequences:**
+- A request whose subject was settled while it waited (payment already
+  reversed, run already dispatched) is **rejected automatically** as no
+  longer applicable, with the reason stored, instead of lingering in the
+  queue or paying twice.
+- Requests are admin-only, including reading the queue; clerks never see who
+  is asking to move money.
+- Rate changes are not gated. A rate is effective-dated pricing data, not a
+  release of money, and holding a new season's rate behind an approval would
+  stall intake with no reduction in loss exposure.
+- The refusal is 409 rather than 202 so "nothing happened" is unambiguous;
+  the header is what makes it actionable in the UI.
+
+## D-039 — Produce arrives at a collection point, not a string
+
+`delivery.location` was free text, so "Kisumu Central", "ksm central" and
+"Ksm. Central shed" were three different places to any report, and a member
+had no home location at all. Management's first question — how much came in
+at each point this month — could not be answered. This is backlog 2.1.
+
+**Decision — a small reference table, with the geography co-ops use.**
+
+`collection_points`: name, a unique **code**, county, ward, zone, an optional
+`scale_id`, and an `is_active` flag. Codes are canonicalised to upper case by
+the service and validated against `^[A-Z0-9_-]{2,24}$`, because the code ends
+up in reports and CSVs and two spellings of one point is the same bug as two
+points. Rows are retired with `is_active: false`, never deleted: history
+stays readable and the FK is `RESTRICT`.
+
+**Decision — two links, and the delivery's link is the truth.**
+
+`farmers.collection_point_id` is a *default*; `deliveries.collection_point_id`
+is where that delivery happened. Recording a delivery with no point inherits
+the member's home point, which is what a clerk expects and avoids a required
+field on day one. Moving a member to another point does not move their
+history, and a reversal inherits the original delivery's point rather than
+the member's current one. Both columns are nullable so deliveries and members
+recorded before this migrate without inventing a location.
+
+**Decision — an explicit point must be live; an inherited one need not be.**
+
+Assigning a new member or recording at a chosen point requires an active
+point (409 otherwise). The inheritance path skips that check because the
+produce was still received there: retiring a shed must not block correcting
+its past.
+
+**Decision — the report is net and never hides rows.**
+
+`GET /reports/production-by-point` sums quantity and `quantity × rate` per
+point, **including reversals** (so it reports what the co-op kept, not what
+was first written down), and groups deliveries with no point under
+"Unassigned". A report that silently omits a fifth of the intake is worse than
+one that shows a gap. Date filters are half-open `[from, to)` in UTC, matching
+the rest of the ledger.
+
+**Consequences:**
+- Clerk-to-point scoping is **not** in this change. Restricting which clerk
+  may act at which point is a permission-model change that belongs with the
+  expanded roles work (3.4); the data needed for it now exists.
+- `delivery.location` stays as a free-text "shed 2" note inside the point.
+- A farmer list/export can be filtered by `collection_point_id`; the UI only
+  exposes the point select on member and delivery forms so far.

@@ -276,6 +276,8 @@ def test_farmers_export_matches_the_list_and_has_a_filename(
         # The bank rail's destination (D-036); the export is the record.
         "bank_name",
         "bank_account_number",
+        # The member's home point (D-039).
+        "collection_point_id",
         "date_of_birth",
         "location",
         "status",

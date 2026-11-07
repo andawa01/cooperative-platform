@@ -9,12 +9,14 @@ import { Card, CardBody, CardFooter } from '@/components/common/Card'
 import {
   Field,
   FormError,
+  Select,
   TextArea,
   TextInput,
 } from '@/components/common/Form'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ApiError } from '@/lib/api'
 import { useCreateDelivery } from '@/hooks/useDeliveries'
+import { useCollectionPoints } from '@/hooks/useCollectionPoints'
 import { useFarmer } from '@/hooks/useFarmers'
 import { useProduceLines } from '@/hooks/useProduceLines'
 import { cn } from '@/lib/utils'
@@ -31,14 +33,29 @@ export default function NewDelivery() {
   const [farmer, setFarmer] = useState<Farmer | null>(null)
   const [produceLineId, setProduceLineId] = useState<string>('')
   const [quantity, setQuantity] = useState<string>('')
+  const [collectionPointId, setCollectionPointId] = useState<string>('')
   const [location, setLocation] = useState<string>('')
   const [notes, setNotes] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
-  // Hydrate the farmer if the query string gave us one.
+  const points = useCollectionPoints({ active_only: true })
+  const activePoints = points.data?.items ?? []
+
+  // Hydrate the farmer if the query string gave us one, including their
+  // home point — the clerk at that shed should not have to pick it again.
   useEffect(() => {
-    if (preselectedFarmer.data) setFarmer(preselectedFarmer.data)
+    if (preselectedFarmer.data) {
+      setFarmer(preselectedFarmer.data)
+      if (preselectedFarmer.data.collection_point_id) {
+        setCollectionPointId(preselectedFarmer.data.collection_point_id)
+      }
+    }
   }, [preselectedFarmer.data])
+
+  const chooseFarmer = (next: Farmer | null) => {
+    setFarmer(next)
+    if (next?.collection_point_id) setCollectionPointId(next.collection_point_id)
+  }
 
   const produceLines = useProduceLines({ include_inactive: false, limit: 100 })
   const activeLines = produceLines.data?.items ?? []
@@ -67,6 +84,7 @@ export default function NewDelivery() {
         produce_line_id: produceLineId,
         quantity: q.toFixed(4),
         delivered_at: new Date().toISOString(),
+        collection_point_id: collectionPointId || null,
         location: location.trim() || null,
         notes: notes.trim() || null,
       })
@@ -93,7 +111,7 @@ export default function NewDelivery() {
       <form onSubmit={onSubmit} className="max-w-2xl">
         <Card>
           <CardBody className="space-y-6 p-5 sm:p-6">
-            <FarmerPicker value={farmer} onChange={setFarmer} required />
+            <FarmerPicker value={farmer} onChange={chooseFarmer} required />
 
             <div>
               <span className="flex items-center gap-1 text-sm font-medium text-stone-700">
@@ -167,9 +185,28 @@ export default function NewDelivery() {
             <div className="border-t border-border/60 pt-5">
               <div className="space-y-4">
                 <Field
-                  label="Collection point / location"
+                  label="Collection point"
+                  htmlFor="collection_point_id"
+                  hint="Defaults to the member's point; change it if this delivery happened elsewhere."
+                >
+                  <Select
+                    id="collection_point_id"
+                    value={collectionPointId}
+                    onChange={(e) => setCollectionPointId(e.target.value)}
+                  >
+                    <option value="">No point</option>
+                    {activePoints.map((point) => (
+                      <option key={point.id} value={point.id}>
+                        {point.name} ({point.code})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field
+                  label="Shed / specific spot"
                   htmlFor="location"
-                  hint="Optional — where the produce was handed over."
+                  hint="Optional note within the point, e.g. “shed 2”."
                 >
                   <TextInput
                     id="location"

@@ -56,6 +56,11 @@ AUDIT_ACTIONS = (
     "payout.approve",
     "payout.dispatch",
     "payout.cancel",
+    "approval.request",
+    "approval.approve",
+    "approval.reject",
+    "collection_point.create",
+    "collection_point.update",
 )
 
 # Entity types an action can describe. Display-only as well.
@@ -67,6 +72,8 @@ AUDIT_ENTITY_TYPES = (
     "rate",
     "farmer",
     "user",
+    "approval",
+    "collection_point",
 )
 
 

@@ -13,8 +13,10 @@ import {
 import { ErrorState, Loading } from '@/components/common/Loading'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
+import { useCreateApproval } from '@/hooks/useApprovals'
 import { useAuth } from '@/hooks/useAuth'
 import { usePayment, useReversePayment } from '@/hooks/usePayments'
+import { ApiError } from '@/lib/api'
 import { useFarmer } from '@/hooks/useFarmers'
 import { formatMoney } from '@/lib/auth'
 import { formatDateTime } from '@/lib/datetime'
@@ -26,6 +28,7 @@ export default function PaymentDetail() {
   const payment = usePayment(id)
   const farmer = useFarmer(payment.data?.farmer_id)
   const reverse = useReversePayment(id!)
+  const createApproval = useCreateApproval()
   const [actionError, setActionError] = useState<string | null>(null)
 
   if (payment.isLoading) return <Loading />
@@ -57,6 +60,28 @@ export default function PaymentDetail() {
         description: 'A reversal record was created and the money returned to the balance.',
       })
     } catch (err) {
+      // Above the maker-checker limit the server refuses and tells us so.
+      // Turn that into the request the admin actually wanted to make (D-038).
+      if (err instanceof ApiError && err.approvalRequired) {
+        try {
+          await createApproval.mutateAsync({
+            action: 'payment.reverse',
+            entity_id: p.id,
+            reason: reason.trim(),
+          })
+          toast.success('Sent for approval', {
+            description:
+              'This reversal is above the limit, so a different admin must approve it before it happens.',
+          })
+        } catch (requestErr) {
+          const requestMessage = (requestErr as Error).message
+          setActionError(requestMessage)
+          toast.error('Could not request approval', {
+            description: requestMessage,
+          })
+        }
+        return
+      }
       const message = (err as Error).message
       setActionError(message)
       toast.error('Could not reverse the payment', { description: message })

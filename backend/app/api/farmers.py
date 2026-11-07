@@ -30,6 +30,10 @@ from app.schemas.farmer import (
     FarmerUpdate,
 )
 from app.services import farmer as farmer_service
+from app.services.collection_point import (
+    CollectionPointInactive,
+    CollectionPointNotFound,
+)
 from app.services.farmer import (
     FarmerNationalIdTaken,
     FarmerNotFound,
@@ -65,6 +69,12 @@ def _translate(exc: Exception) -> HTTPException:
         )
     if isinstance(exc, InvalidBankImport):
         return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+    if isinstance(exc, CollectionPointNotFound):
+        return HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Collection point not found"
+        )
+    if isinstance(exc, CollectionPointInactive):
+        return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     return HTTPException(status.HTTP_400_BAD_REQUEST, "Bad request")
 
 
@@ -91,6 +101,8 @@ def create_farmer(
         FarmerNationalIdTaken,
         InvalidPhoneFormat,
         IncompleteBankDetails,
+        CollectionPointNotFound,
+        CollectionPointInactive,
     ) as exc:
         raise _translate(exc)
 
@@ -102,6 +114,7 @@ def list_farmers(
     status_filter: FarmerStatus | None = Query(default=None, alias="status"),
     search: str | None = Query(default=None, max_length=100),
     include_merged: bool = Query(default=False),
+    collection_point_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
@@ -116,6 +129,7 @@ def list_farmers(
         status=status_filter,
         search=search,
         include_merged=include_merged,
+        collection_point_id=collection_point_id,
         limit=limit,
         offset=offset,
     )
@@ -129,6 +143,7 @@ def export_farmers(
     status_filter: FarmerStatus | None = Query(default=None, alias="status"),
     search: str | None = Query(default=None, max_length=100),
     include_merged: bool = Query(default=False),
+    collection_point_id: uuid.UUID | None = Query(default=None),
 ):
     """
     Every farmer matching the current filter, as CSV.
@@ -142,6 +157,7 @@ def export_farmers(
         status=status_filter,
         search=search,
         include_merged=include_merged,
+        collection_point_id=collection_point_id,
         limit=MAX_EXPORT_ROWS,
         offset=0,
     )
@@ -155,6 +171,7 @@ def export_farmers(
             "national_id",
             "bank_name",
             "bank_account_number",
+            "collection_point_id",
             "date_of_birth",
             "location",
             "status",
@@ -170,6 +187,7 @@ def export_farmers(
                 farmer.national_id,
                 farmer.bank_name,
                 farmer.bank_account_number,
+                farmer.collection_point_id,
                 farmer.date_of_birth,
                 farmer.location,
                 farmer.status,
@@ -227,7 +245,12 @@ def update_farmer(
         return farmer_service.update_farmer(db, farmer_id, payload, actor)
     except FarmerNotFound as exc:
         raise _translate(exc)
-    except (FarmerNationalIdTaken, IncompleteBankDetails) as exc:
+    except (
+        FarmerNationalIdTaken,
+        IncompleteBankDetails,
+        CollectionPointNotFound,
+        CollectionPointInactive,
+    ) as exc:
         raise _translate(exc)
 
 

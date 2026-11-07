@@ -25,6 +25,7 @@ from app.models.farmer import Farmer, FarmerStatus
 from app.models.user import User
 from app.schemas.farmer import FarmerCreate, FarmerUpdate
 from app.services import audit
+from app.services.collection_point import resolve_active_point
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
@@ -134,6 +135,11 @@ def create_farmer(
     """
     normalized_phone = normalize_phone(data.phone)
 
+    # A point that does not exist or has been retired cannot become a
+    # member's home; the error is raised before anything is written (D-039).
+    if data.collection_point_id is not None:
+        resolve_active_point(db, data.collection_point_id)
+
     farmer = Farmer(
         first_name=data.first_name.strip(),
         last_name=data.last_name.strip(),
@@ -144,6 +150,7 @@ def create_farmer(
         bank_account_number=(
             data.bank_account_number.strip() if data.bank_account_number else None
         ),
+        collection_point_id=data.collection_point_id,
         location=(data.location.strip() if data.location else None),
         notes=data.notes,
         status=FarmerStatus.PENDING_VERIFICATION.value,
@@ -166,6 +173,11 @@ def create_farmer(
                 "national_id": farmer.national_id,
                 "bank_name": farmer.bank_name,
                 "bank_account_number": farmer.bank_account_number,
+                "collection_point_id": (
+                    str(farmer.collection_point_id)
+                    if farmer.collection_point_id
+                    else None
+                ),
                 "status": farmer.status,
             },
         )
@@ -195,6 +207,7 @@ def list_farmers(
     status: FarmerStatus | None = None,
     search: str | None = None,
     include_merged: bool = False,
+    collection_point_id: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Farmer], int]:
@@ -218,6 +231,9 @@ def list_farmers(
         conditions.append(Farmer.status == status.value)
     elif not include_merged:
         conditions.append(Farmer.status != FarmerStatus.MERGED.value)
+
+    if collection_point_id is not None:
+        conditions.append(Farmer.collection_point_id == collection_point_id)
 
     if search:
         pattern = f"%{search.strip().lower()}%"
@@ -261,6 +277,9 @@ def update_farmer(
     farmer = get_farmer(db, farmer_id)
 
     updates = data.model_dump(exclude_unset=True)
+
+    if updates.get("collection_point_id") is not None:
+        resolve_active_point(db, updates["collection_point_id"])
 
     # Defensive: even though the schema excludes these, keep the service
     # honest in case the schema is ever loosened.

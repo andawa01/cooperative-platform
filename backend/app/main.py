@@ -3,8 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
+    approvals,
     audit,
     auth,
+    collection_points,
     dashboard,
     deductions,
     deliveries,
@@ -14,6 +16,7 @@ from app.api import (
     payments,
     payouts,
     produce,
+    reports,
     statements,
     users,
 )
@@ -52,7 +55,12 @@ def create_app() -> FastAPI:
         # can quote when reporting a failure.
         # Content-Disposition is exposed so CSV exports can use the filename
         # the server chose rather than inventing one in the browser.
-        expose_headers=["Idempotency-Replayed", "X-Request-ID", "Content-Disposition"],
+        expose_headers=[
+            "Idempotency-Replayed",
+            "X-Request-ID",
+            "Content-Disposition",
+            "X-Approval-Required",
+        ],
     )
 
     # Outermost: headers must be on every response, including the 500s and
@@ -92,6 +100,9 @@ def create_app() -> FastAPI:
     app.include_router(users.router)
     app.include_router(deductions.router)
     app.include_router(payouts.router)
+    app.include_router(approvals.router)
+    app.include_router(collection_points.router)
+    app.include_router(reports.router)
 
     return app
 

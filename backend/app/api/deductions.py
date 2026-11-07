@@ -25,6 +25,7 @@ from app.schemas.deduction import (
     DeductionResponse,
     DeductionReverseRequest,
 )
+from app.services import approval as approval_service
 from app.services import deduction as deduction_service
 from app.services.deduction import (
     CannotReverseReversal,
@@ -206,6 +207,15 @@ def reverse_deduction(
     actor: User = Depends(require_role(UserRole.ADMIN)),
 ):
     """Reverse a deduction. Admin only. Returns the reversal row."""
+    try:
+        approval_service.assert_not_gated(db, "deduction.reverse", deduction_id)
+    except approval_service.ApprovalRequired as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            str(exc),
+            headers={"X-Approval-Required": "true"},
+        )
+
     try:
         reversal = deduction_service.reverse_deduction(
             db, deduction_id, payload.reason, actor

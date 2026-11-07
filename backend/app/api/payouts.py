@@ -30,6 +30,7 @@ from app.schemas.payout import (
     PayoutItemResponse,
     PayoutListResponse,
 )
+from app.services import approval as approval_service
 from app.services import payout as payout_service
 from app.services import rails as rail_service
 from app.services.payout import (
@@ -212,7 +213,20 @@ def dispatch_payout_run(
 
     Safe to call again: a failed item is retried, an already-paid item replays
     its payment instead of creating a second one.
+
+    A run that still owes members at or above the maker-checker limit is not
+    one admin's call: 409 with `X-Approval-Required`, then a different admin
+    approves the request (D-038).
     """
+    try:
+        approval_service.assert_not_gated(db, "payout.dispatch", batch_id)
+    except approval_service.ApprovalRequired as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            str(exc),
+            headers={"X-Approval-Required": "true"},
+        )
+
     try:
         batch, paid, failed, pending = payout_service.dispatch_batch(
             db, batch_id, actor

@@ -27,6 +27,7 @@ from app.schemas.payment import (
     PaymentResponse,
     PaymentReverseRequest,
 )
+from app.services import approval as approval_service
 from app.services import notifications as notif_service
 from app.services import payment as payment_service
 from app.services.payment import (
@@ -285,6 +286,17 @@ def reverse_payment(
     db: Session = Depends(get_db),
     actor: User = Depends(require_role(UserRole.ADMIN)),
 ):
+    # Above the maker-checker limit this is not one admin's call, and the
+    # refusal carries a header the UI turns into "request approval" (D-038).
+    try:
+        approval_service.assert_not_gated(db, "payment.reverse", payment_id)
+    except approval_service.ApprovalRequired as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            str(exc),
+            headers={"X-Approval-Required": "true"},
+        )
+
     try:
         reversal = payment_service.reverse_payment(
             db, payment_id, payload.reason, actor

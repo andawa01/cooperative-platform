@@ -74,6 +74,8 @@ export interface Farmer {
   /** Bank destination for bank transfer runs; set together or not at all. */
   bank_name: string | null
   bank_account_number: string | null
+  /** Home collection point; deliveries default to it (D-039). */
+  collection_point_id: string | null
   location: string | null
   notes: string | null
   status: FarmerStatus
@@ -92,6 +94,7 @@ export interface FarmerCreateRequest {
   national_id?: string | null
   bank_name?: string | null
   bank_account_number?: string | null
+  collection_point_id?: string | null
   location?: string | null
   notes?: string | null
 }
@@ -127,8 +130,62 @@ export interface FarmerUpdateRequest {
   national_id?: string | null
   bank_name?: string | null
   bank_account_number?: string | null
+  collection_point_id?: string | null
   location?: string | null
   notes?: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Collection points (D-039)
+// ---------------------------------------------------------------------------
+
+export interface CollectionPoint {
+  id: string
+  name: string
+  code: string
+  county: string | null
+  ward: string | null
+  zone: string | null
+  scale_id: string | null
+  is_active: boolean
+  created_by_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CollectionPointCreateRequest {
+  name: string
+  code: string
+  county?: string | null
+  ward?: string | null
+  zone?: string | null
+  scale_id?: string | null
+}
+
+export interface CollectionPointUpdateRequest {
+  name?: string
+  code?: string
+  county?: string | null
+  ward?: string | null
+  zone?: string | null
+  scale_id?: string | null
+  is_active?: boolean
+}
+
+export interface ProductionByPointRow {
+  collection_point_id: string | null
+  collection_point_name: string
+  collection_point_code: string | null
+  entries: number
+  quantity: string
+  value: string
+  currency: string
+}
+
+export interface ProductionByPoint {
+  delivered_from: string | null
+  delivered_to: string | null
+  items: ProductionByPointRow[]
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +250,9 @@ export interface Delivery {
   /** Resolved server-side so list screens do not need a second lookup. */
   farmer_name: string
   produce_line_name: string
+  /** Where the produce was handed over (D-039); null for older rows. */
+  collection_point_id: string | null
+  collection_point_name: string | null
   /** `D-2026-000123` — the handle a member quotes. Reversals have none. */
   receipt_number: string | null
   quantity: string
@@ -214,6 +274,8 @@ export interface DeliveryCreateRequest {
   produce_line_id: string
   quantity: string
   delivered_at: string
+  /** Omit to inherit the member's home point. */
+  collection_point_id?: string | null
   location?: string | null
   notes?: string | null
 }
@@ -386,12 +448,55 @@ export interface PayoutDispatchResult {
   paid: number
   failed: number
   pending: number
+}// ---------------------------------------------------------------------------
+// Approvals (maker-checker, D-038)
+// ---------------------------------------------------------------------------
+
+export type ApprovalAction =
+  | 'payment.reverse'
+  | 'deduction.reverse'
+  | 'payout.dispatch'
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
+
+/**
+ * A second-admin request. `amount` and `summary` are snapshotted by the
+ * server when the request is made, so the approver sees the same figure the
+ * requester did.
+ */
+export interface Approval {
+  id: string
+  action: ApprovalAction
+  entity_type: 'payment' | 'deduction' | 'payout'
+  entity_id: string
+  amount: string | null
+  currency: string | null
+  summary: string
+  reason: string | null
+  status: ApprovalStatus
+  requested_by_id: string
+  requested_by_name: string
+  decided_by_id: string | null
+  decided_by_name: string | null
+  decided_at: string | null
+  decision_note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApprovalCreateRequest {
+  action: ApprovalAction
+  entity_id: string
+  reason?: string | null
+}
+
+export interface ApprovalDecisionRequest {
+  note?: string | null
 }
 
 // ---------------------------------------------------------------------------
 // Balance and statement
 // ---------------------------------------------------------------------------
-
 export interface Balance {
   farmer_id: string
   currency: string

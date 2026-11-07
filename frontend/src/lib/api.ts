@@ -15,10 +15,17 @@ import type { DashboardSummary } from '../types/api'
 import { clearToken, getToken } from './auth'
 import type {
   AllocationInput,
+  Approval,
+  ApprovalCreateRequest,
+  ApprovalDecisionRequest,
+  ApprovalStatus,
   AuditEntry,
   Balance,
   BankDetailsImportRequest,
   BankDetailsImportResult,
+  CollectionPoint,
+  CollectionPointCreateRequest,
+  CollectionPointUpdateRequest,
   Deduction,
   DeductionCreateRequest,
   DeductionReverseRequest,
@@ -39,6 +46,7 @@ import type {
   PayoutDispatchResult,
   PasswordChangeRequest,
   PaymentReverseRequest,
+  ProductionByPoint,
   ProduceLine,
   ProduceLineCreateRequest,
   Rate,
@@ -58,8 +66,18 @@ export class ApiError extends Error {
   detail: unknown
   /** Seconds from a 429's `Retry-After`, when the server sent one. */
   retryAfter: number | null
+  /**
+   * The money move was refused because it crosses the maker-checker limit
+   * (D-038). The UI offers "request approval" rather than showing a dead end.
+   */
+  approvalRequired: boolean
 
-  constructor(status: number, detail: unknown, retryAfter: number | null = null) {
+  constructor(
+    status: number,
+    detail: unknown,
+    retryAfter: number | null = null,
+    approvalRequired = false,
+  ) {
     super(
       typeof detail === 'string'
         ? detail
@@ -68,6 +86,7 @@ export class ApiError extends Error {
     this.status = status
     this.detail = detail
     this.retryAfter = retryAfter
+    this.approvalRequired = approvalRequired
   }
 }
 
@@ -120,6 +139,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
       res.status,
       data,
       Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
+      res.headers.get('x-approval-required') === 'true',
     )
   }
   return data as T
@@ -192,6 +212,34 @@ export const api = {
     balance: (id: string) => request<Balance>(`/farmers/${id}/balance`),
     statement: (id: string, params: { start?: string; end?: string } = {}) =>
       request<Statement>(`/farmers/${id}/statement`, { query: params }),
+  },
+
+  collectionPoints: {
+    list: (params: {
+      active_only?: boolean
+      search?: string
+      limit?: number
+      offset?: number
+    } = {}) =>
+      request<Paginated<CollectionPoint>>('/collection-points', { query: params }),
+    get: (id: string) => request<CollectionPoint>(`/collection-points/${id}`),
+    create: (body: CollectionPointCreateRequest) =>
+      request<CollectionPoint>('/collection-points', { method: 'POST', body }),
+    update: (id: string, body: CollectionPointUpdateRequest) =>
+      request<CollectionPoint>(`/collection-points/${id}`, {
+        method: 'PATCH',
+        body,
+      }),
+  },
+
+  reports: {
+    productionByPoint: (params: {
+      delivered_from?: string
+      delivered_to?: string
+    } = {}) =>
+      request<ProductionByPoint>('/reports/production-by-point', {
+        query: params,
+      }),
   },
 
   produceLines: {
@@ -276,6 +324,20 @@ export const api = {
       }),
     cancel: (id: string) =>
       request<PayoutBatchDetail>(`/payout-runs/${id}/cancel`, { method: 'POST' }),
+  },
+
+  approvals: {
+    list: (params: {
+      status?: ApprovalStatus
+      limit?: number
+      offset?: number
+    } = {}) => request<Paginated<Approval>>('/approvals', { query: params }),
+    create: (body: ApprovalCreateRequest) =>
+      request<Approval>('/approvals', { method: 'POST', body }),
+    approve: (id: string, body: ApprovalDecisionRequest = {}) =>
+      request<Approval>(`/approvals/${id}/approve`, { method: 'POST', body }),
+    reject: (id: string, body: ApprovalDecisionRequest = {}) =>
+      request<Approval>(`/approvals/${id}/reject`, { method: 'POST', body }),
   },
 
   notifications: {

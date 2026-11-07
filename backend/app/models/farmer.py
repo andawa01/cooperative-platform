@@ -87,6 +87,14 @@ class Farmer(BaseModel):
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     bank_account_number: Mapped[str | None] = mapped_column(String(34), nullable=True)
 
+    # --- Home collection point (D-039) ---------------------------------
+    # Nullable: existing members predate points, and a member can be
+    # registered before the point list is complete. The delivery records the
+    # point actually used, so this can change without rewriting history.
+    collection_point_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("collection_points.id", ondelete="RESTRICT"), nullable=True
+    )
+
     # --- Lifecycle ------------------------------------------------------
     status: Mapped[str] = mapped_column(
         String(30),
@@ -168,6 +176,7 @@ class Farmer(BaseModel):
         # (Search indexes are trigram GINs, created in migration e52b47e5ff15
         # because they are expression indexes Alembic cannot mirror here.)
         Index("ix_farmer_created_at", "created_at"),
+        Index("ix_farmer_collection_point", "collection_point_id"),
     )
 
     # --- Convenience ----------------------------------------------------
