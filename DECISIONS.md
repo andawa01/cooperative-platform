@@ -2474,3 +2474,61 @@ nothing was withheld the message says so plainly rather than printing "0.00
   the reasons and carry a link or short code instead.
 - If a real gateway is integrated, delivery receipts belong in the same
   template's state rather than a third message.
+
+## D-034 — A delivery has a number a person can say out loud
+
+A UUID is unquotable. "I delivered on the 4th, about 80 kilos" is what the
+office actually hears, and it cannot be resolved without the clerk's guess.
+Every delivery now carries a receipt number — `D-2026-000123` — printed on the
+SMS and exported in the CSV, so a member can quote one thing and have exactly
+one record found.
+
+**Decision — sequential per calendar year, not per co-op lifetime.**
+
+The year is part of the number. It restarts at `000001` each January, which
+keeps the number short enough to read over a phone and makes the season obvious
+from the handle alone. The counter is `document_sequences(name, year)`, a table
+rather than a Postgres sequence, because a sequence cannot restart per year or
+roll back with the delivery it belongs to.
+
+**Decision — the number is gapless, and the counter is locked.**
+
+The counter row is taken with `SELECT ... FOR UPDATE` while the next value is
+allocated. Two clerks recording at the same moment therefore serialize for the
+few milliseconds it takes to increment an integer, and cannot be issued the
+same slip. The number is allocated inside the delivery's own transaction, so a
+failed insert rolls the counter back — the sequence has no holes and no number
+is spent on a delivery that does not exist.
+
+The cost is real and accepted: receipt allocation serializes concurrent
+delivery writes for the same year, and a delivery is otherwise not a financial
+operation that takes a lock. At cooperative volumes (hundreds per day) this is
+invisible; at thousands per minute it would need batching, which is a problem
+for a different system.
+
+Backstop: `uq_delivery_receipt_number` makes a duplicate impossible at the
+database level even if the allocator is ever changed carelessly.
+
+**Decision — reversals carry no number.**
+
+A reversal is a correction, not an intake slip. Giving it a number would let a
+member quote a slip for produce that was never delivered, and would make the
+numbering of the physical slips non-contiguous for no gain. The reversal is
+found through the original's number, which is what a dispute conversation
+starts from anyway.
+
+**Decision — existing rows are numbered on migration.**
+
+The backfill orders by `recorded_at, id` within each year of `delivered_at` and
+seeds each year's counter from the highest number issued. Re-deriving the same
+order reproduces the same numbers, so a downgrade loses nothing that cannot be
+recomputed.
+
+**Consequences:**
+- The receipt number is in the delivery response, delivery CSV export and the
+  `delivery_recorded` SMS. Existing notification templates are unchanged.
+- `record_delivery` now allocates a number before the insert, so it depends on
+  `document_sequences` existing; the migration adds the table before the
+  column, so an ordered `alembic upgrade head` is sufficient.
+- A future "find by receipt" lookup (clerk types the quoted number) is a plain
+  indexed equality filter on the new unique constraint.

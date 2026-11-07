@@ -71,9 +71,12 @@ def _render_delivery_recorded(delivery: Delivery, farmer: Farmer) -> str:
     # We use the produce_line_id's short prefix as a stand-in.
     qty = f"{delivery.quantity:.2f}".rstrip("0").rstrip(".")
     line_code = f"#{str(delivery.produce_line_id)[:4]}"
+    # The receipt number is the point of the message: it is what the member
+    # quotes when they question the weight or the rate.
+    receipt = f" Receipt {delivery.receipt_number}." if delivery.receipt_number else ""
     return (
         f"ShambaTrack: {farmer.first_name}, delivery of {qty} "
-        f"({line_code}) recorded. Thank you."
+        f"({line_code}) recorded.{receipt} Thank you."
     )
 
 

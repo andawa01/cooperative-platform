@@ -190,6 +190,11 @@ export default function DeliveryDetail() {
                 }
               />
               <DetailRow
+                label="Receipt number"
+                value={d.receipt_number ?? '—'}
+                mono
+              />
+              <DetailRow
                 label="Delivered at"
                 value={formatDateTime(d.delivered_at)}
               />

@@ -162,6 +162,8 @@ export interface Delivery {
   /** Resolved server-side so list screens do not need a second lookup. */
   farmer_name: string
   produce_line_name: string
+  /** `D-2026-000123` — the handle a member quotes. Reversals have none. */
+  receipt_number: string | null
   quantity: string
   delivered_at: string
   recorded_at: string

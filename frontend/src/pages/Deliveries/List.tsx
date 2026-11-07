@@ -34,6 +34,19 @@ const columns: DataColumn<Delivery>[] = [
     ),
   },
   {
+    key: 'receipt',
+    header: 'Receipt',
+    hideBelow: 'sm',
+    render: (d) =>
+      d.receipt_number ? (
+        <span className="font-mono text-xs text-stone-600 tabular-nums">
+          {d.receipt_number}
+        </span>
+      ) : (
+        <span className="text-stone-300">—</span>
+      ),
+  },
+  {
     key: 'farmer',
     header: 'Farmer',
     render: (d) => (

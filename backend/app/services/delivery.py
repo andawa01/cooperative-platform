@@ -33,6 +33,7 @@ from app.models.produce import ProduceLine, Rate
 from app.models.user import User
 from app.schemas.delivery import DeliveryCreate
 from app.services import audit
+from app.services import sequences as sequence_service
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
@@ -153,6 +154,9 @@ def record_delivery(
         recorded_by_id=actor.id,
         rate_snapshot=rate_value,
         currency_snapshot=currency,
+        receipt_number=sequence_service.next_delivery_receipt_number(
+            db, data.delivered_at
+        ),
         reversal_of_id=None,
         location=data.location,
         notes=data.notes,
@@ -177,6 +181,7 @@ def record_delivery(
             "delivered_at": data.delivered_at.isoformat(),
             "rate_snapshot": (str(rate_value) if rate_value is not None else None),
             "currency": currency,
+            "receipt_number": delivery.receipt_number,
             "pending_valuation": rate_value is None,
         },
     )
@@ -386,6 +391,8 @@ def reverse_delivery(
             recorded_by_id=actor.id,
             rate_snapshot=original.rate_snapshot,
             currency_snapshot=original.currency_snapshot,
+            # A reversal is not an intake slip: no receipt number of its own.
+            receipt_number=None,
             reversal_of_id=original.id,
             location=original.location,
             notes=f"[reversal] {reason}",

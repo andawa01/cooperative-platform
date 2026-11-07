@@ -22,6 +22,7 @@ from app.models.payment import (
 )
 from app.models.payout import PayoutBatch, PayoutItem, PayoutItemStatus, PayoutStatus
 from app.models.produce import ProduceLine, Rate
+from app.models.sequence import DocumentSequence
 from app.models.user import User
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "Notification",
     "NotificationChannel",
     "NotificationTemplate",
+    "DocumentSequence",
 ]
