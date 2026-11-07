@@ -2416,3 +2416,61 @@ exclusion, frozen amounts after a later delivery, permissions, approve/dispatch
 order, double dispatch, cancel, deduction-netted amounts, export file, audit
 rows). `ruff check` and `ruff format --check` clean. Migration
 `e5c8a13d7f92` applies to head.
+
+## D-033 — The payment SMS shows its arithmetic
+
+"Payment of 3,980 received" is technically true and practically useless. The
+member's question is never *did money arrive* — it is *why is it 3,980 and not
+4,800*. Without the breakdown, answering that costs a visit to the office, and
+the cooperative's credibility depends on the member being able to check the
+sum on their own phone.
+
+**Decision — a second template, not a longer one.**
+
+`payment_advice` sits beside `payment_recorded` rather than replacing it. They
+say different things, they are retried and audited separately, and a template
+whose meaning silently changed under existing rows would make the notification
+history unreadable. `payment_recorded` stays for the plain confirmation case.
+
+The advice reads:
+
+```
+ShambaTrack: Grace, 3,980.00 KES sent via M-Pesa (RUN-2026-3F2A9C).
+Less deductions 820.00 (input credit 620.00, transport 200.00). Thank you.
+```
+
+**Decision — name two reasons, fold the rest into "other".**
+
+A member with eight charge types would otherwise receive a four-segment SMS.
+The two largest are named because they are the ones being questioned; the
+remainder is aggregated so the totals still add up. Reasons come from
+`SUM(deduction.amount)` grouped by `reason_code` — the same signed-row rule as
+the ledger, so a reversed charge disappears from the message instead of
+confusing the arithmetic.
+
+**Decision — no invented "gross" figure.**
+
+The tempting line is "produce 4,800, less 820". It is only true when the
+payment settles a full position with no prior credit, and a payment may be an
+advance, a partial settlement, or a run covering several deliveries. Stating a
+gross that happens to reconcile would be a plausible-looking lie, which is
+worse than saying less. What the message states is verifiable: the amount sent,
+the rail, the run reference, the withheld total, and its largest reasons. When
+nothing was withheld the message says so plainly rather than printing "0.00
+(other)".
+
+**Consequences:**
+- Both a payout run and a counter payment now send the advice; the difference
+  between them is the reference, not the wording.
+- The advice costs one extra grouped query per payment. It runs after the
+  payment is committed and is wrapped in a best-effort try, so a slow query or
+  an unreachable Redis can never fail a payment or a payout item.
+- SMS length: the common case is one segment (~140 characters with two named
+  reasons). A member with an unusually long name and long reference may spill
+  to two segments — acceptable, and cheaper than truncating the numbers.
+
+**Reversal triggers:**
+- If a member's statement becomes available by SMS/USSD, the advice can drop
+  the reasons and carry a link or short code instead.
+- If a real gateway is integrated, delivery receipts belong in the same
+  template's state rather than a third message.

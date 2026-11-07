@@ -250,10 +250,11 @@ def dispatch_batch(
         _settle_item(db, item.id, PayoutItemStatus.PAID, payment_id=payment.id)
 
         # The advice SMS goes through the existing queue so a member paid by a
-        # run gets the same message as one paid at the counter.
+        # run gets the same message as one paid at the counter — with the
+        # withheld total and its reasons spelled out (1.4).
         try:
-            notif_service.enqueue_payment_recorded(db, payment)
-        except Exception:  # noqa: BLE001
+            notif_service.enqueue_payment_advice(db, payment)
+        except Exception:  # noqa: BLE001 — the payment already happened
             pass
 
         paid += 1

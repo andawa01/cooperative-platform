@@ -140,8 +140,10 @@ def record_payment(
     # Only notify on the first successful creation, never on replay.
     if not replayed:
         try:
-            notif_service.enqueue_payment_recorded(db, payment)
-        except Exception:  # noqa: BLE001
+            # The advice, not the generic confirmation: the member is told what
+            # was withheld as well as what arrived (D-033).
+            notif_service.enqueue_payment_advice(db, payment)
+        except Exception:  # noqa: BLE001 — a failed SMS must never fail a payment
             pass
 
     if replayed:

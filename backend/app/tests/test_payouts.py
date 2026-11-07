@@ -348,3 +348,79 @@ def test_run_actions_are_audited(client, db, admin, farmer, produce_line, rate):
         "payout.create",
         "payout.dispatch",
     ]
+
+
+def test_dispatch_texts_the_arithmetic_to_the_member(
+    client, db, admin, farmer, produce_line, rate
+):
+    """
+    The message a member receives must let them check the sum themselves.
+
+    500 earned, 120 withheld for transport, 380 sent. If the SMS says only
+    "payment received" the member has to visit the office to learn why.
+    """
+    from app.models.notification import Notification
+
+    _deliver(client, admin, farmer, produce_line)  # 10 kg @ 50 = 500
+    deduction = client.post(
+        "/deductions",
+        json={
+            "farmer_id": str(farmer.id),
+            "amount": "120.0000",
+            "currency": "KES",
+            "reason_code": "transport",
+            "applied_at": datetime.now(UTC).isoformat(),
+        },
+        headers=_auth(admin),
+    )
+    assert deduction.status_code == 201, deduction.text
+
+    run = _create_run(client, admin).json()
+    client.post(f"/payout-runs/{run['id']}/approve", headers=_auth(admin))
+    dispatched = client.post(f"/payout-runs/{run['id']}/dispatch", headers=_auth(admin))
+    assert dispatched.status_code == 200, dispatched.text
+
+    notice = db.scalar(
+        select(Notification)
+        .where(Notification.farmer_id == farmer.id)
+        .where(Notification.template == "payment_advice")
+    )
+    assert notice is not None
+    assert notice.template == "payment_advice"
+    assert notice.recipient == farmer.phone
+    assert "380.00" in notice.content, notice.content
+    assert "120.00" in notice.content, notice.content
+    assert "transport" in notice.content
+    assert run["reference"] in notice.content
+
+
+def test_a_member_without_deductions_gets_a_plain_advice(
+    client, db, admin, farmer, produce_line, rate
+):
+    """No withholding means no arithmetic to show — say so, print no zeroes."""
+    from app.models.notification import Notification
+
+    _deliver(client, admin, farmer, produce_line)
+
+    payment = client.post(
+        "/payments",
+        json={
+            "farmer_id": str(farmer.id),
+            "amount": "100.0000",
+            "currency": "KES",
+            "method": "cash",
+            "paid_at": datetime.now(UTC).isoformat(),
+            "idempotency_key": uuid.uuid4().hex,
+        },
+        headers=_auth(admin),
+    )
+    assert payment.status_code == 201, payment.text
+
+    notice = db.scalar(
+        select(Notification)
+        .where(Notification.farmer_id == farmer.id)
+        .where(Notification.template == "payment_advice")
+    )
+    assert notice.template == "payment_advice"
+    assert "No deductions" in notice.content
+    assert "100.00" in notice.content

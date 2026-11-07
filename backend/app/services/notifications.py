@@ -9,6 +9,7 @@ Two-store design (see D-024):
 Public API:
 - enqueue_delivery_recorded(db, delivery) -> Notification | None
 - enqueue_payment_recorded(db, payment) -> Notification | None
+- enqueue_payment_advice(db, payment) -> Notification | None   (1.4 — with breakdown)
 - get_dispatch_state(notification_id) -> dict
 - list_notifications(db, ...) -> (rows, total)
 - retry_notification(db, notification_id) -> bool
@@ -27,6 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.redis_client import redis_client
+from app.models.deduction import Deduction
 from app.models.delivery import Delivery
 from app.models.farmer import Farmer
 from app.models.notification import (
@@ -81,6 +83,80 @@ def _render_payment_recorded(payment: Payment, farmer: Farmer) -> str:
         f"ShambaTrack: {farmer.first_name}, payment of {amount} "
         f"{payment.currency} received. Thank you."
     )
+
+
+# How a payout rail reads in a message a member actually receives.
+RAIL_LABELS = {
+    "cash": "cash",
+    "mobile_money": "M-Pesa",
+    "bank_transfer": "bank transfer",
+}
+
+# At most this many reasons are named; the rest are folded into "other" so a
+# member with eight charge types does not get a four-segment SMS.
+MAX_NAMED_REASONS = 2
+
+
+def _money(value) -> str:
+    return f"{value:,.2f}"
+
+
+def _deduction_breakdown(
+    db: Session, farmer_id: uuid.UUID
+) -> tuple[object, list[tuple[str, object]]]:
+    """
+    (total withheld, [(reason label, amount), ...]) for one member.
+
+    Signed rows are summed with no filtering, so a reversed deduction drops
+    out — the same rule the ledger uses. Reasons are ordered by size because
+    the big one is the one the member is asking about.
+    """
+    rows = db.execute(
+        select(
+            Deduction.reason_code,
+            func.coalesce(func.sum(Deduction.amount), 0),
+        )
+        .where(Deduction.farmer_id == farmer_id)
+        .group_by(Deduction.reason_code)
+        .order_by(func.coalesce(func.sum(Deduction.amount), 0).desc())
+    ).all()
+
+    total = sum((amount for _, amount in rows), 0)
+    named = [
+        (reason.replace("_", " "), amount)
+        for reason, amount in rows[:MAX_NAMED_REASONS]
+        if amount != 0
+    ]
+    rest = sum((amount for _, amount in rows[MAX_NAMED_REASONS:]), 0)
+    if rest != 0:
+        named.append(("other", rest))
+    return total, named
+
+
+def _render_payment_advice(db: Session, payment: Payment, farmer: Farmer) -> str:
+    """
+    The message a member needs to settle a dispute without visiting the office:
+    what arrived, and what the cooperative took out before it arrived.
+
+    Deliberately does not claim to reconcile against produce. The payment may
+    be an advance, a partial settlement, or a payout run covering several
+    deliveries; inventing a "gross" figure that happens to add up would be a
+    plausible-looking lie. What is stated is verifiable: the amount sent, the
+    rail, the run reference, and the withheld total with its largest reasons.
+    """
+    rail = RAIL_LABELS.get(payment.method, payment.method.replace("_", " "))
+    ref = f" ({payment.reference})" if payment.reference else ""
+    head = (
+        f"ShambaTrack: {farmer.first_name}, {_money(payment.amount)} "
+        f"{payment.currency} sent via {rail}{ref}."
+    )
+
+    total, named = _deduction_breakdown(db, farmer.id)
+    if not total or not named:
+        return f"{head} No deductions. Thank you."
+
+    detail = ", ".join(f"{label} {_money(amount)}" for label, amount in named)
+    return f"{head} Less deductions {_money(total)} ({detail}). Thank you."
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +288,40 @@ def enqueue_delivery_recorded(db: Session, delivery: Delivery) -> Notification |
         content=content,
         related_type=RelatedEntityType.DELIVERY,
         related_id=delivery.id,
+    )
+
+    enqueued = _enqueue(n.id)
+    _write_state(
+        n.id,
+        status="queued",
+        attempts=0,
+        last_error=None if enqueued else "redis unreachable",
+        sent_at=None,
+    )
+    return n
+
+
+def enqueue_payment_advice(db: Session, payment: Payment) -> Notification | None:
+    """
+    Payment confirmation that shows its arithmetic (D-033).
+
+    Used wherever money reaches a member and withholding may have happened —
+    a payout run, a counter payment. Falls back to the plain wording when
+    nothing was withheld, so a member with no deductions sees no noise.
+    """
+    farmer = db.get(Farmer, payment.farmer_id)
+    if farmer is None:
+        return None
+
+    content = _render_payment_advice(db, payment, farmer)
+    n = _create_notification_row(
+        db,
+        farmer_id=farmer.id,
+        template=NotificationTemplate.PAYMENT_ADVICE,
+        recipient=farmer.phone,
+        content=content,
+        related_type=RelatedEntityType.PAYMENT,
+        related_id=payment.id,
     )
 
     enqueued = _enqueue(n.id)

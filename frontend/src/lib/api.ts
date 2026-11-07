@@ -31,6 +31,10 @@ import type {
   Paginated,
   Payment,
   PaymentCreateRequest,
+  PayoutBatch,
+  PayoutBatchDetail,
+  PayoutCreateRequest,
+  PayoutDispatchResult,
   PasswordChangeRequest,
   PaymentReverseRequest,
   ProduceLine,
@@ -248,6 +252,22 @@ export const api = {
       request<Deduction>('/deductions', { method: 'POST', body }),
     reverse: (id: string, body: DeductionReverseRequest) =>
       request<Deduction>(`/deductions/${id}/reverse`, { method: 'POST', body }),
+  },
+
+  payoutRuns: {
+    list: (params: { limit?: number; offset?: number } = {}) =>
+      request<Paginated<PayoutBatch>>('/payout-runs', { query: params }),
+    get: (id: string) => request<PayoutBatchDetail>(`/payout-runs/${id}`),
+    create: (body: PayoutCreateRequest) =>
+      request<PayoutBatchDetail>('/payout-runs', { method: 'POST', body }),
+    approve: (id: string) =>
+      request<PayoutBatchDetail>(`/payout-runs/${id}/approve`, { method: 'POST' }),
+    dispatch: (id: string) =>
+      request<PayoutDispatchResult>(`/payout-runs/${id}/dispatch`, {
+        method: 'POST',
+      }),
+    cancel: (id: string) =>
+      request<PayoutBatchDetail>(`/payout-runs/${id}/cancel`, { method: 'POST' }),
   },
 
   notifications: {

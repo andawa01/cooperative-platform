@@ -13,6 +13,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 const TEMPLATE_LABELS: Record<string, string> = {
   delivery_recorded: 'Delivery',
   payment_recorded: 'Payment',
+  payment_advice: 'Payment advice',
 }
 
 const columns: DataColumn<Notification>[] = [
