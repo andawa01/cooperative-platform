@@ -17,6 +17,8 @@ import type {
   AllocationInput,
   AuditEntry,
   Balance,
+  BankDetailsImportRequest,
+  BankDetailsImportResult,
   Deduction,
   DeductionCreateRequest,
   DeductionReverseRequest,
@@ -181,6 +183,12 @@ export const api = {
       request<Farmer>(`/farmers/${id}/verify`, { method: 'POST' }),
     archive: (id: string) =>
       request<Farmer>(`/farmers/${id}/archive`, { method: 'POST' }),
+    /** CSV preview/apply shared by the bulk bank-details screen (D-037). */
+    importBankDetails: (body: BankDetailsImportRequest) =>
+      request<BankDetailsImportResult>('/farmers/bank-details/import', {
+        method: 'POST',
+        body,
+      }),
     balance: (id: string) => request<Balance>(`/farmers/${id}/balance`),
     statement: (id: string, params: { start?: string; end?: string } = {}) =>
       request<Statement>(`/farmers/${id}/statement`, { query: params }),

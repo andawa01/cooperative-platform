@@ -14,6 +14,7 @@ Design notes:
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -100,3 +101,36 @@ class FarmerListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class BankDetailsImportRequest(BaseModel):
+    """
+    The CSV file's text, not an upload: the browser reads the file and sends
+    what it found, so there is one parser (the server's) and no multipart
+    dependency. `dry_run` defaults to true — importing money destinations is
+    something an admin confirms after seeing who it matched.
+    """
+
+    csv: str = Field(min_length=1, max_length=1_000_000)
+    dry_run: bool = True
+
+
+class BankDetailsImportRow(BaseModel):
+    line: int
+    phone: str
+    farmer_name: str | None
+    status: Literal["valid", "applied", "error"]
+    message: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class BankDetailsImportResult(BaseModel):
+    dry_run: bool
+    total: int
+    valid: int
+    applied: int
+    errors: int
+    rows: list[BankDetailsImportRow]
+
+    model_config = {"from_attributes": True}

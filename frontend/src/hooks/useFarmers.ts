@@ -16,6 +16,7 @@ import {
 
 import { api } from '@/lib/api'
 import type {
+  BankDetailsImportRequest,
   Farmer,
   FarmerCreateRequest,
   FarmerUpdateRequest,
@@ -107,6 +108,17 @@ export function useUpdateFarmer(id: string) {
     mutationFn: (body: FarmerUpdateRequest) => api.farmers.update(id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: farmerKeys.detail(id) })
+      qc.invalidateQueries({ queryKey: farmerKeys.all })
+    },
+  })
+}
+
+export function useImportBankDetails() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: BankDetailsImportRequest) =>
+      api.farmers.importBankDetails(body),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: farmerKeys.all })
     },
   })

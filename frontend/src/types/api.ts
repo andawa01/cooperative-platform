@@ -96,6 +96,30 @@ export interface FarmerCreateRequest {
   notes?: string | null
 }
 
+export interface BankDetailsImportRequest {
+  /** The file's text; the server parses and validates it. */
+  csv: string
+  /** Preview by default — an apply must be asked for explicitly. */
+  dry_run?: boolean
+}
+
+export interface BankDetailsImportRow {
+  line: number
+  phone: string
+  farmer_name: string | null
+  status: 'valid' | 'applied' | 'error'
+  message: string | null
+}
+
+export interface BankDetailsImportResult {
+  dry_run: boolean
+  total: number
+  valid: number
+  applied: number
+  errors: number
+  rows: BankDetailsImportRow[]
+}
+
 export interface FarmerUpdateRequest {
   first_name?: string
   last_name?: string

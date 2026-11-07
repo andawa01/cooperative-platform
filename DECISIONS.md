@@ -2632,3 +2632,49 @@ lets an admin add the missing pair before downloading again.
   uploaded before account details are edited.
 - A gateway integration still needs either member-level account verification
   or the bank's own beneficiary validation; this column set is not that.
+
+## D-037 — Bank details arrive in bulk, by preview then apply
+
+D-036 gave members a bank destination; entering it one member at a time for a
+cooperative that already has hundreds is not a workflow anyone completes. The
+import screen reads a CSV and writes through the same service a manual edit
+uses.
+
+**Decision — the browser sends the file's text, the server parses it.**
+
+`POST /farmers/bank-details/import` takes `{csv, dry_run}` rather than a
+multipart upload. That keeps one parser (Python's `csv`, which handles quoted
+names and CRLF), needs no upload dependency, and gives the frontend nothing to
+mis-parse. The size cap and the 500-row limit are enforced server-side, where
+they cannot be skipped.
+
+**Decision — `dry_run` defaults to true, and the apply is explicit.**
+
+Checking reports every row with its line number: matched, unknown phone, bad
+account, duplicate phone, missing bank name. Applying writes only the valid
+rows, in one transaction, and reports skipped rows in the same response. A
+silent partial import is the failure mode to avoid — the admin must be able to
+say how many members changed.
+
+**Decision — match by phone, never create members.**
+
+Phone is the member's unique, already-normalised handle (D-016), and it is the
+field a treasurer's spreadsheet has. Accepting local `07…` formats means the
+file does not have to be converted first. An unknown phone is reported rather
+than creating a member: an import that can create people is an import that can
+invent a payout destination from one typo.
+
+**Decision — importing leaves the same audit trail as editing.**
+
+Each changed member gets a `farmer.update` entry with before/after bank
+fields, recorded through the existing audit helper. The trail must not depend
+on which screen the change came through. Unchanged rows are counted as applied
+but write no audit entry, because nothing changed.
+
+**Consequences:**
+- A duplicate phone inside one file skips the later row and names the earlier
+  line; the first row wins deterministically instead of depending on order.
+- Truncating the bank name at 100 characters matches the column; an account
+  number is never truncated, it is rejected.
+- CSV formula injection is not a concern here: nothing from this file is ever
+  rendered as a spreadsheet by us, and the values are validated digits/names.
