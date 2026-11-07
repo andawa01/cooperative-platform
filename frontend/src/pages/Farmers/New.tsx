@@ -5,12 +5,14 @@ import { toast } from 'sonner'
 
 import { ApiError } from '@/lib/api'
 import { useCreateFarmer } from '@/hooks/useFarmers'
+import { useCollectionPoints } from '@/hooks/useCollectionPoints'
 import { Button, ButtonLink } from '@/components/common/Button'
 import { Card, CardBody, CardFooter } from '@/components/common/Card'
 import {
   Field,
   FieldGroup,
   FormError,
+  Select,
   TextArea,
   TextInput,
 } from '@/components/common/Form'
@@ -19,6 +21,8 @@ import { PageHeader } from '@/components/common/PageHeader'
 export default function NewFarmer() {
   const navigate = useNavigate()
   const create = useCreateFarmer()
+  const points = useCollectionPoints({ active_only: true })
+  const activePoints = points.data?.items ?? []
 
   const [form, setForm] = useState({
     first_name: '',
@@ -27,6 +31,7 @@ export default function NewFarmer() {
     national_id: '',
     bank_name: '',
     bank_account_number: '',
+    collection_point_id: '',
     location: '',
     date_of_birth: '',
     notes: '',
@@ -53,6 +58,7 @@ export default function NewFarmer() {
         national_id: form.national_id.trim() || null,
         bank_name: form.bank_name.trim() || null,
         bank_account_number: form.bank_account_number.trim() || null,
+        collection_point_id: form.collection_point_id || null,
         location: form.location.trim() || null,
         date_of_birth: form.date_of_birth || null,
         notes: form.notes.trim() || null,
@@ -188,7 +194,28 @@ export default function NewFarmer() {
                 description="Helps clerks find the right person and keeps notes out of the ledger."
               >
                 <Field
-                  label="Location"
+                  label="Collection point"
+                  htmlFor="collection_point_id"
+                  hint="Deliveries default to this point. Optional — a clerk can still register a member before the shed list is complete."
+                >
+                  <Select
+                    id="collection_point_id"
+                    value={form.collection_point_id}
+                    onChange={(e) =>
+                      set('collection_point_id', e.target.value)
+                    }
+                  >
+                    <option value="">No point yet</option>
+                    {activePoints.map((point) => (
+                      <option key={point.id} value={point.id}>
+                        {point.name} ({point.code})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field
+                  label="Location note"
                   htmlFor="location"
                   hint="Free text — a note for clerks, not used in reporting"
                 >

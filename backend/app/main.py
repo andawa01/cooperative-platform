@@ -6,6 +6,7 @@ from app.api import (
     approvals,
     audit,
     auth,
+    collection_points,
     dashboard,
     deductions,
     deliveries,
@@ -15,6 +16,7 @@ from app.api import (
     payments,
     payouts,
     produce,
+    reports,
     statements,
     users,
 )
@@ -99,6 +101,8 @@ def create_app() -> FastAPI:
     app.include_router(deductions.router)
     app.include_router(payouts.router)
     app.include_router(approvals.router)
+    app.include_router(collection_points.router)
+    app.include_router(reports.router)
 
     return app
 

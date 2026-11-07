@@ -23,6 +23,9 @@ import type {
   Balance,
   BankDetailsImportRequest,
   BankDetailsImportResult,
+  CollectionPoint,
+  CollectionPointCreateRequest,
+  CollectionPointUpdateRequest,
   Deduction,
   DeductionCreateRequest,
   DeductionReverseRequest,
@@ -43,6 +46,7 @@ import type {
   PayoutDispatchResult,
   PasswordChangeRequest,
   PaymentReverseRequest,
+  ProductionByPoint,
   ProduceLine,
   ProduceLineCreateRequest,
   Rate,
@@ -208,6 +212,34 @@ export const api = {
     balance: (id: string) => request<Balance>(`/farmers/${id}/balance`),
     statement: (id: string, params: { start?: string; end?: string } = {}) =>
       request<Statement>(`/farmers/${id}/statement`, { query: params }),
+  },
+
+  collectionPoints: {
+    list: (params: {
+      active_only?: boolean
+      search?: string
+      limit?: number
+      offset?: number
+    } = {}) =>
+      request<Paginated<CollectionPoint>>('/collection-points', { query: params }),
+    get: (id: string) => request<CollectionPoint>(`/collection-points/${id}`),
+    create: (body: CollectionPointCreateRequest) =>
+      request<CollectionPoint>('/collection-points', { method: 'POST', body }),
+    update: (id: string, body: CollectionPointUpdateRequest) =>
+      request<CollectionPoint>(`/collection-points/${id}`, {
+        method: 'PATCH',
+        body,
+      }),
+  },
+
+  reports: {
+    productionByPoint: (params: {
+      delivered_from?: string
+      delivered_to?: string
+    } = {}) =>
+      request<ProductionByPoint>('/reports/production-by-point', {
+        query: params,
+      }),
   },
 
   produceLines: {

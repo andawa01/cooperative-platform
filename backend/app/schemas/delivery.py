@@ -20,6 +20,9 @@ class DeliveryCreate(BaseModel):
     produce_line_id: uuid.UUID
     quantity: Decimal = Field(gt=0, max_digits=12, decimal_places=4)
     delivered_at: datetime
+    # Omit to use the member's home point (D-039); set explicitly when
+    # produce is handed over somewhere else.
+    collection_point_id: uuid.UUID | None = None
     location: str | None = Field(default=None, max_length=255)
     notes: str | None = None
 
@@ -49,6 +52,8 @@ class DeliveryResponse(BaseModel):
     # making the client join that would be an N+1 across the whole page.
     farmer_name: str
     produce_line_name: str
+    collection_point_id: uuid.UUID | None
+    collection_point_name: str | None
     # Short handle the member quotes when disputing a record.
     receipt_number: str | None
     quantity: Decimal

@@ -41,6 +41,8 @@ class FarmerCreate(BaseModel):
     # the service compares against what is already stored.
     bank_name: str | None = Field(default=None, max_length=100)
     bank_account_number: str | None = Field(default=None, pattern=BANK_ACCOUNT_PATTERN)
+    # Home collection point (D-039). Optional: older members predate points.
+    collection_point_id: uuid.UUID | None = None
     location: str | None = Field(default=None, max_length=255)
     notes: str | None = None
 
@@ -71,6 +73,8 @@ class FarmerUpdate(BaseModel):
     national_id: str | None = Field(default=None, max_length=50)
     bank_name: str | None = Field(default=None, max_length=100)
     bank_account_number: str | None = Field(default=None, pattern=BANK_ACCOUNT_PATTERN)
+    # Explicit null clears the member's home point; omitted leaves it alone.
+    collection_point_id: uuid.UUID | None = None
     location: str | None = Field(default=None, max_length=255)
     notes: str | None = None
 
@@ -84,6 +88,7 @@ class FarmerResponse(BaseModel):
     national_id: str | None
     bank_name: str | None
     bank_account_number: str | None
+    collection_point_id: uuid.UUID | None
     location: str | None
     notes: str | None
     status: FarmerStatus

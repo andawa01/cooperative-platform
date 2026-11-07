@@ -20,6 +20,7 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  MapPin,
   Moon,
   Package,
   Receipt,
@@ -66,6 +67,7 @@ const NAV: NavGroup[] = [
     title: 'Administration',
     items: [
       { to: '/produce', label: 'Produce & Rates', icon: Sprout, adminOnly: true },
+      { to: '/collection-points', label: 'Collection points', icon: MapPin, adminOnly: true },
       { to: '/notifications', label: 'Notifications', icon: Bell, adminOnly: true },
       { to: '/approvals', label: 'Approvals', icon: ShieldCheck, adminOnly: true },
       { to: '/users', label: 'Users', icon: UserCog, adminOnly: true },

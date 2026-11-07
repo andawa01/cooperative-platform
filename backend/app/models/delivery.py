@@ -45,6 +45,14 @@ class Delivery(BaseModel):
         ForeignKey("produce_lines.id", ondelete="RESTRICT"), nullable=False
     )
 
+    # --- Where it was handed over (D-039) -------------------------------
+    # Independent of the farmer's current point: moving a member does not
+    # move their history, and a reversal inherits the original's point.
+    # Nullable for the deliveries recorded before points existed.
+    collection_point_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("collection_points.id", ondelete="RESTRICT"), nullable=True
+    )
+
     # --- Quantity -------------------------------------------------------
     # Positive for a delivery, negative for a reversal (see constraints).
     # Unit is implied by the produce line, not stored per delivery.
@@ -85,7 +93,8 @@ class Delivery(BaseModel):
     )
 
     # --- Context --------------------------------------------------------
-    # Free-text for now; will be replaced by a collection_point_id FK later.
+    # Free text kept for the specific spot within a point ("shed 2", "gate").
+    # The structured location is `collection_point_id` above.
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -140,6 +149,7 @@ class Delivery(BaseModel):
         # the tie-break needs no sort.
         Index("ix_delivery_delivered_at", "delivered_at", "id"),
         Index("ix_delivery_recorded_by", "recorded_by_id"),
+        Index("ix_delivery_collection_point", "collection_point_id", "delivered_at"),
     )
 
     # --- Derived helpers ------------------------------------------------

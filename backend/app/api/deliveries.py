@@ -21,6 +21,7 @@ from app.api.csv import MAX_EXPORT_ROWS, csv_response
 from app.api.deps import get_current_user, require_role
 from app.core.config import settings
 from app.db.session import get_db
+from app.models.collection_point import CollectionPoint
 from app.models.farmer import Farmer
 from app.models.produce import ProduceLine
 from app.models.user import User, UserRole
@@ -34,6 +35,10 @@ from app.schemas.delivery import (
 from app.services import delivery as delivery_service
 from app.services import ledger as ledger_service
 from app.services import notifications as notif_service
+from app.services.collection_point import (
+    CollectionPointInactive,
+    CollectionPointNotFound,
+)
 from app.services.delivery import (
     DeliveryAlreadyReversed,
     DeliveryNotFound,
@@ -64,6 +69,12 @@ def _translate(exc: Exception) -> HTTPException:
     if isinstance(exc, DeliveryNotValued):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     if isinstance(exc, NoRateAvailableForValuation):
+        return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    if isinstance(exc, CollectionPointNotFound):
+        return HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Collection point not found"
+        )
+    if isinstance(exc, CollectionPointInactive):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     return HTTPException(status.HTTP_400_BAD_REQUEST, "Bad request")
 
@@ -98,6 +109,18 @@ def _serialize_many(
         for line in db.scalars(select(ProduceLine).where(ProduceLine.id.in_(line_ids)))
     }
 
+    point_ids = {d.collection_point_id for d in rows if d.collection_point_id}
+    points = (
+        {
+            p.id: p
+            for p in db.scalars(
+                select(CollectionPoint).where(CollectionPoint.id.in_(point_ids))
+            )
+        }
+        if point_ids
+        else {}
+    )
+
     return [
         DeliveryResponse(
             id=d.id,
@@ -112,6 +135,12 @@ def _serialize_many(
                 lines[d.produce_line_id].name
                 if d.produce_line_id in lines
                 else "Unknown produce line"
+            ),
+            collection_point_id=d.collection_point_id,
+            collection_point_name=(
+                points[d.collection_point_id].name
+                if d.collection_point_id in points
+                else None
             ),
             receipt_number=d.receipt_number,
             quantity=d.quantity,
@@ -154,6 +183,8 @@ def record_delivery(
         ProduceLineNotFound,
         FarmerNotActive,
         ProduceLineInactive,
+        CollectionPointNotFound,
+        CollectionPointInactive,
     ) as exc:
         raise _translate(exc)
 
@@ -174,6 +205,7 @@ def list_deliveries(
     _: User = Depends(get_current_user),
     farmer_id: uuid.UUID | None = Query(default=None),
     produce_line_id: uuid.UUID | None = Query(default=None),
+    collection_point_id: uuid.UUID | None = Query(default=None),
     recorded_by_id: uuid.UUID | None = Query(default=None),
     delivered_from: datetime | None = Query(default=None),
     delivered_to: datetime | None = Query(default=None),
@@ -186,6 +218,7 @@ def list_deliveries(
         db,
         farmer_id=farmer_id,
         produce_line_id=produce_line_id,
+        collection_point_id=collection_point_id,
         recorded_by_id=recorded_by_id,
         delivered_from=delivered_from,
         delivered_to=delivered_to,
@@ -205,6 +238,7 @@ def export_deliveries(
     _: User = Depends(get_current_user),
     farmer_id: uuid.UUID | None = Query(default=None),
     produce_line_id: uuid.UUID | None = Query(default=None),
+    collection_point_id: uuid.UUID | None = Query(default=None),
     recorded_by_id: uuid.UUID | None = Query(default=None),
     delivered_from: datetime | None = Query(default=None),
     delivered_to: datetime | None = Query(default=None),
@@ -221,6 +255,7 @@ def export_deliveries(
         db,
         farmer_id=farmer_id,
         produce_line_id=produce_line_id,
+        collection_point_id=collection_point_id,
         recorded_by_id=recorded_by_id,
         delivered_from=delivered_from,
         delivered_to=delivered_to,
@@ -238,6 +273,7 @@ def export_deliveries(
             "delivered_at",
             "farmer",
             "produce_line",
+            "collection_point",
             "quantity",
             "rate_snapshot",
             "amount",
@@ -254,6 +290,7 @@ def export_deliveries(
                 d.delivered_at,
                 d.farmer_name,
                 d.produce_line_name,
+                d.collection_point_name,
                 d.quantity,
                 d.rate_snapshot,
                 d.amount,

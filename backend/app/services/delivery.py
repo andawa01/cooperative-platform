@@ -34,6 +34,7 @@ from app.models.user import User
 from app.schemas.delivery import DeliveryCreate
 from app.services import audit
 from app.services import sequences as sequence_service
+from app.services.collection_point import resolve_active_point
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
@@ -126,6 +127,15 @@ def record_delivery(
     if not line.is_active:
         raise ProduceLineInactive()
 
+    # Where it was handed over (D-039). An explicit point must exist and be
+    # live; otherwise the member's home point is used, even if that point has
+    # since been retired — the produce was still received there.
+    point_id = data.collection_point_id
+    if point_id is not None:
+        resolve_active_point(db, point_id)
+    else:
+        point_id = farmer.collection_point_id
+
     # Rate lookup at delivered_at.
     delivered_date = data.delivered_at.date()
     rate = _find_rate_for(db, data.produce_line_id, delivered_date)
@@ -158,6 +168,7 @@ def record_delivery(
             db, data.delivered_at
         ),
         reversal_of_id=None,
+        collection_point_id=point_id,
         location=data.location,
         notes=data.notes,
     )
@@ -182,6 +193,7 @@ def record_delivery(
             "rate_snapshot": (str(rate_value) if rate_value is not None else None),
             "currency": currency,
             "receipt_number": delivery.receipt_number,
+            "collection_point_id": (str(point_id) if point_id is not None else None),
             "pending_valuation": rate_value is None,
         },
     )
@@ -206,6 +218,7 @@ def list_deliveries(
     *,
     farmer_id: uuid.UUID | None = None,
     produce_line_id: uuid.UUID | None = None,
+    collection_point_id: uuid.UUID | None = None,
     recorded_by_id: uuid.UUID | None = None,
     delivered_from: datetime | None = None,
     delivered_to: datetime | None = None,
@@ -232,6 +245,8 @@ def list_deliveries(
         conditions.append(Delivery.farmer_id == farmer_id)
     if produce_line_id is not None:
         conditions.append(Delivery.produce_line_id == produce_line_id)
+    if collection_point_id is not None:
+        conditions.append(Delivery.collection_point_id == collection_point_id)
     if recorded_by_id is not None:
         conditions.append(Delivery.recorded_by_id == recorded_by_id)
     if delivered_from is not None:
@@ -394,6 +409,8 @@ def reverse_delivery(
             # A reversal is not an intake slip: no receipt number of its own.
             receipt_number=None,
             reversal_of_id=original.id,
+            # Inherited: a correction belongs where the intake happened.
+            collection_point_id=original.collection_point_id,
             location=original.location,
             notes=f"[reversal] {reason}",
         )

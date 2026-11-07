@@ -59,6 +59,8 @@ AUDIT_ACTIONS = (
     "approval.request",
     "approval.approve",
     "approval.reject",
+    "collection_point.create",
+    "collection_point.update",
 )
 
 # Entity types an action can describe. Display-only as well.
@@ -71,6 +73,7 @@ AUDIT_ENTITY_TYPES = (
     "farmer",
     "user",
     "approval",
+    "collection_point",
 )
 
 
